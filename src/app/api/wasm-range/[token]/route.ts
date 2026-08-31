@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getRangeRegistry, getWarmCache } from "@/lib/sandbox/wasm/range-singleton";
-import { fetchRemoteRange, EgressFetchError } from "@/lib/sandbox/egress-fetch";
+import { EgressFetchError } from "@/lib/sandbox/egress-fetch";
+import { getPersistentFetcher } from "@/lib/sandbox/persistent-fetcher";
 import { logger } from "@/lib/logger";
 
 /**
@@ -126,7 +127,11 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
   }
 
   try {
-    const { body, contentRange, total } = await fetchRemoteRange({
+    // D41: the PERSISTENT fetcher — one long-lived `egress-fetch serve` child
+    // with a pooled agent, so sequential DuckDB reads skip spawn+DNS+TLS
+    // (~300-500ms each). Authorization is unchanged: the child re-runs the full
+    // §6a decision per request.
+    const { body, contentRange, total } = await getPersistentFetcher().fetchRange({
       url: src.url,
       allowlist: src.allowlist,
       range: canonical,
@@ -178,7 +183,7 @@ export async function HEAD(req: NextRequest, ctx: { params: Promise<{ token: str
   if (!registry.charge(token, 1)) return new NextResponse(null, { status: 509 });
 
   try {
-    const { total } = await fetchRemoteRange({
+    const { total } = await getPersistentFetcher().fetchRange({
       url: src.url,
       allowlist: src.allowlist,
       range: "bytes=0-0",

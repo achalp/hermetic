@@ -1445,3 +1445,52 @@ when the run's code does (the codeNeedsDuckDb shape).
 plus a gated behavioral test asserting all 30 names are callable in a REAL
 Pyodide namespace and `to_num` actually coerces. Growing the docker surface
 without growing the wasm binding is now a red test, not a paid retry loop.
+
+### D40 — Manifest questions go ranged on wasm; the P2 ceilings are gone.
+
+The dataset-manifest P3 build (spec: dataset-manifests-2026-08-30.md §11, P3
+entry — decisions numbered there). What belongs in THIS log: the wasm delivery
+for a multi-entity question is now the D21 mechanism end to end —
+`buildManifestWasmAliases` mints run-scoped tokens (per object; per FILE for
+hive/glob via `buildHiveAliases`, so alias names keep `key=value` segments and
+`hive_partitioning=true` still derives columns), both pipelines consume it
+through the ONE shared module, and `releaseRun` fires in each pipeline's
+finally. The e2e gained the manifest-question shape: TWO ranged aliases joined
+by DuckDB in the PRODUCTION worker under the production CSP, zero 416s.
+
+### D41 — The persistent fetcher: spawn+DNS+TLS once, not per range read (#37).
+
+Per-read cost of the one-shot bin was ~300–500 ms (process spawn + DNS + TLS),
+paid on every footer/row-group read. Now `egress-fetch serve` — a long-lived
+child speaking a line-framed protocol on stdin/stdout — with a Node client
+(`lib/sandbox/persistent-fetcher.ts`) the wasm-range route calls instead of
+spawning.
+
+Decisions:
+
+- **No listener sockets**: transport is the child's own stdin/stdout. Creds
+  ride the request frame (off argv/process table, same property env gave).
+- **Authorization unchanged, re-run per request** — serve mode reuses
+  `authorize_and_fetch_range_with` (new injectable seam, mirror of
+  `authorize_and_fetch_with`). Connection REUSE is rebind-safe by construction:
+  a pooled socket was connected to a vetted address; reuse never re-resolves.
+- **AgentPool pins per request**: one cached ureq agent per (host, port) whose
+  resolver closure reads a slot overwritten with the CURRENT vetted addrs
+  before every fetch. Serial-use contract, enforced structurally by the serve
+  loop and the Node client's promise chain.
+- **Fail closed on framing**: malformed frame = fatal exit 64, no resync; the
+  Node side treats any death as crash-restart (in-flight request rejected,
+  next request respawns). Hostile Content-Range values are stripped of control
+  chars so an upstream can never forge a frame header.
+- **Idle reap** after 60 s; per-request client deadline 90 s (the Rust edge's
+  own 60 s timeout wins, with its better diagnostic).
+
+Test story (the merge condition): Rust — 14 serve-framing unit tests, 2
+AgentPool tests (reuse proven by ACCEPT COUNT on a keep-alive server; pin-slot
+proven by pointing the same host key at a dead port), 2 bin integration tests
+(serial frames answered, exit 0 on EOF; malformed frame exit 64). Node — 13
+client tests against a fake serve bin (parsing, dribbled chunks, serialization,
+same-process reuse via an in-process counter, ERR mapping to the one-shot
+kinds, crash-restart, frame-safety refusals) plus a GATED cross-language
+handshake driving the REAL debug bin. Route protocol tests re-pointed at the
+persistent fetcher.

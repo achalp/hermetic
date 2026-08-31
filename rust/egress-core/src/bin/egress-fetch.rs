@@ -28,9 +28,11 @@ use std::io::Write;
 use std::process::ExitCode;
 
 use hermetic_egress_core::fetch::{
-    authorize_and_fetch, authorize_and_fetch_range, Credentials, FetchError, SystemResolver,
+    authorize_and_fetch, authorize_and_fetch_range, authorize_and_fetch_range_with, AgentPool,
+    Credentials, FetchError, SystemFetcher, SystemResolver,
 };
 use hermetic_egress_core::parse_byte_range;
+use hermetic_egress_core::serve::{error_code, serve_loop};
 
 const DEFAULT_CAP_BYTES: u64 = 2 * 1024 * 1024 * 1024; // 2 GiB
 
@@ -38,10 +40,19 @@ fn main() -> ExitCode {
     let url = match std::env::args().nth(1) {
         Some(u) => u,
         None => {
-            eprintln!("egress-fetch: usage: egress-fetch <url>  (allowlist via HERMETIC_EGRESS_ALLOWLIST)");
+            eprintln!("egress-fetch: usage: egress-fetch <url>|serve  (allowlist via HERMETIC_EGRESS_ALLOWLIST)");
             return ExitCode::from(64);
         }
     };
+
+    // PERSISTENT serve mode (build log D41): framed ranged requests on stdin,
+    // framed responses on stdout, pooled TLS connections across requests. Every
+    // request still runs the FULL authorization; per-request env is not used —
+    // allowlist/cap/creds arrive inside each frame (stdin of our own child, so
+    // creds stay off argv and out of the process table, same as env before).
+    if url == "serve" {
+        return serve_main();
+    }
 
     let allowlist: Vec<String> = std::env::var("HERMETIC_EGRESS_ALLOWLIST")
         .unwrap_or_default()
@@ -151,4 +162,40 @@ fn report(err: FetchError) -> ExitCode {
     };
     eprintln!("egress-fetch: {msg}");
     ExitCode::from(code)
+}
+
+/// The serve-mode entry point: a strictly serial frame loop over stdin/stdout
+/// with one shared [`AgentPool`]. A framing error is fatal (exit 64) — the Node
+/// client treats any death as crash-restart, and the only stdin writer is that
+/// client, so a bad frame is a bug rather than traffic to tolerate.
+fn serve_main() -> ExitCode {
+    let pool = std::sync::Arc::new(AgentPool::new());
+    let stdin = std::io::stdin();
+    let mut reader = stdin.lock();
+    let stdout = std::io::stdout();
+    let mut writer = stdout.lock();
+
+    let result = serve_loop(&mut reader, &mut writer, |req| {
+        let fetcher = SystemFetcher::new()
+            .with_credentials(req.creds.clone())
+            .with_pool(std::sync::Arc::clone(&pool));
+        let cap = req.cap.unwrap_or(DEFAULT_CAP_BYTES);
+        authorize_and_fetch_range_with(
+            &req.url,
+            &req.allowlist,
+            &SystemResolver,
+            &fetcher,
+            cap,
+            req.range,
+        )
+        .map_err(|e| (error_code(&e), e.to_string()))
+    });
+
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(msg) => {
+            eprintln!("egress-fetch serve: fatal: {msg}");
+            ExitCode::from(64)
+        }
+    }
 }

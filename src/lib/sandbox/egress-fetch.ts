@@ -51,7 +51,7 @@ export interface MaterializeRemoteOptions {
 }
 
 /** Map the bin's documented exit codes → an error kind (see egress-fetch.rs). */
-function kindForExit(code: number | null): EgressFetchKind {
+export function kindForExit(code: number | null): EgressFetchKind {
   switch (code) {
     case 1:
       return "denied";

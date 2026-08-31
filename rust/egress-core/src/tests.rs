@@ -61,13 +61,13 @@ fn ipv4_public_addresses_allowed() {
     for ip in [
         v4(1, 1, 1, 1),
         v4(8, 8, 8, 8),
-        v4(52, 216, 1, 1),      // AWS S3-ish public
-        v4(140, 82, 121, 3),    // GitHub-ish
-        v4(172, 15, 0, 1),      // just BELOW the 172.16/12 private block
-        v4(172, 32, 0, 1),      // just ABOVE the 172.16/12 private block
-        v4(100, 63, 255, 255),  // just below CGNAT 100.64/10
-        v4(100, 128, 0, 1),     // just above CGNAT 100.64/10
-        v4(198, 20, 0, 1),      // just above benchmarking 198.18/15
+        v4(52, 216, 1, 1),     // AWS S3-ish public
+        v4(140, 82, 121, 3),   // GitHub-ish
+        v4(172, 15, 0, 1),     // just BELOW the 172.16/12 private block
+        v4(172, 32, 0, 1),     // just ABOVE the 172.16/12 private block
+        v4(100, 63, 255, 255), // just below CGNAT 100.64/10
+        v4(100, 128, 0, 1),    // just above CGNAT 100.64/10
+        v4(198, 20, 0, 1),     // just above benchmarking 198.18/15
     ] {
         assert!(!is_blocked_ip(ip), "{ip} should be allowed (public)");
     }
@@ -221,7 +221,11 @@ fn host_membership_empty_allowlist_denies_all() {
 #[test]
 fn redirect_same_host_allowed_by_host_check() {
     let al = allowlist(&["data.example.com"]);
-    assert!(redirect_allowed("data.example.com", "data.example.com", &al));
+    assert!(redirect_allowed(
+        "data.example.com",
+        "data.example.com",
+        &al
+    ));
 }
 
 #[test]
@@ -513,21 +517,33 @@ fn parse_url_default_ports() {
 fn parse_byte_range_accepts_the_two_supported_forms() {
     assert_eq!(
         parse_byte_range("bytes=0-3"),
-        Some(ByteRange { start: 0, end: Some(3) })
+        Some(ByteRange {
+            start: 0,
+            end: Some(3)
+        })
     );
     assert_eq!(
         parse_byte_range("bytes=525066711-"),
-        Some(ByteRange { start: 525066711, end: None })
+        Some(ByteRange {
+            start: 525066711,
+            end: None
+        })
     );
     // surrounding whitespace is tolerated, the value is still canonicalized
     assert_eq!(
         parse_byte_range("  bytes=10-20  "),
-        Some(ByteRange { start: 10, end: Some(20) })
+        Some(ByteRange {
+            start: 10,
+            end: Some(20)
+        })
     );
     // single byte (used to probe total size for a HEAD)
     assert_eq!(
         parse_byte_range("bytes=0-0"),
-        Some(ByteRange { start: 0, end: Some(0) })
+        Some(ByteRange {
+            start: 0,
+            end: Some(0)
+        })
     );
 }
 
@@ -554,7 +570,11 @@ fn byte_range_header_value_is_reserialized_not_echoed() {
     let r = parse_byte_range("  bytes=10-20  ").unwrap();
     assert_eq!(r.to_header_value(), "bytes=10-20");
     assert_eq!(
-        ByteRange { start: 7, end: None }.to_header_value(),
+        ByteRange {
+            start: 7,
+            end: None
+        }
+        .to_header_value(),
         "bytes=7-"
     );
 }

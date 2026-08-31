@@ -39,7 +39,7 @@ use std::time::Duration;
 
 use crate::{
     authorize_fetch, parse_url, redirect_target_authorized, AllowedFetch, ByteCounter, ByteRange,
-    CapStatus, DenyReason, Fetcher, FetchOutcome, Method, ResolveError, Resolver,
+    CapStatus, DenyReason, FetchOutcome, Fetcher, Method, ResolveError, Resolver,
 };
 
 /// Read chunk size for streaming the body under the cap. Bounds how many bytes
@@ -109,22 +109,96 @@ impl Resolver for SystemResolver {
 // ---------------------------------------------------------------------------
 
 /// The real-network implementation of [`Fetcher`]. Holds only the credential to
-/// apply; all policy lives in the [`AllowedFetch`] it is handed.
+/// apply (plus an optional connection pool); all policy lives in the
+/// [`AllowedFetch`] it is handed.
 #[derive(Debug, Clone, Default)]
 pub struct SystemFetcher {
     creds: Credentials,
+    pool: Option<std::sync::Arc<AgentPool>>,
 }
 
 impl SystemFetcher {
     pub fn new() -> Self {
         SystemFetcher {
             creds: Credentials::None,
+            pool: None,
         }
     }
 
     pub fn with_credentials(mut self, creds: Credentials) -> Self {
         self.creds = creds;
         self
+    }
+
+    /// Reuse connections across requests via a shared [`AgentPool`] (serve
+    /// mode). Without a pool every fetch builds a fresh agent — one TLS
+    /// handshake per request, the pre-D41 behavior.
+    pub fn with_pool(mut self, pool: std::sync::Arc<AgentPool>) -> Self {
+        self.pool = Some(pool);
+        self
+    }
+}
+
+/// A per-(host, port) cache of ureq agents so serve mode reuses TLS connections
+/// (build log D41). Cloning a `ureq::Agent` shares its connection pool, so
+/// handing out clones keeps the underlying sockets warm across requests.
+///
+/// PINNING INVARIANT PRESERVED: each cached agent's resolver closure reads the
+/// CURRENT vetted addresses from a shared slot that [`AgentPool::agent_for`]
+/// overwrites with `AllowedFetch::addrs` immediately before returning the
+/// agent. The closure still never consults system DNS. A REUSED (already
+/// established) connection needs no resolution at all — it was connected to an
+/// address vetted by `authorize_fetch` when it was opened, which is exactly the
+/// check-to-connect rebinding defense.
+///
+/// SERIAL USE ONLY: the slot-overwrite-then-fetch sequence assumes one request
+/// in flight at a time — precisely serve mode's contract (`serve_loop` is
+/// structurally serial). Do not share a pool across threads issuing
+/// concurrent fetches to the same host.
+#[derive(Debug, Default)]
+pub struct AgentPool {
+    inner: std::sync::Mutex<
+        std::collections::HashMap<
+            (String, u16),
+            (
+                std::sync::Arc<std::sync::Mutex<Vec<SocketAddr>>>,
+                ureq::Agent,
+            ),
+        >,
+    >,
+}
+
+impl AgentPool {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Number of distinct (host, port) agents cached — test/diagnostic only.
+    pub fn len(&self) -> usize {
+        self.inner.lock().expect("agent pool poisoned").len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    fn agent_for(&self, host: &str, port: u16, pinned: Vec<SocketAddr>) -> ureq::Agent {
+        let mut map = self.inner.lock().expect("agent pool poisoned");
+        let (slot, agent) = map.entry((host.to_string(), port)).or_insert_with(|| {
+            let slot = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let for_resolver = std::sync::Arc::clone(&slot);
+            let agent = ureq::AgentBuilder::new()
+                .redirects(0)
+                .timeout(REQUEST_TIMEOUT)
+                // Connect ONLY to the currently vetted IPs; never re-resolve.
+                .resolver(move |_netloc: &str| {
+                    Ok(for_resolver.lock().expect("pin slot poisoned").clone())
+                })
+                .build();
+            (slot, agent)
+        });
+        *slot.lock().expect("pin slot poisoned") = pinned;
+        agent.clone()
     }
 }
 
@@ -150,13 +224,18 @@ impl Fetcher for SystemFetcher {
             return Err("no vetted address to connect to".to_string());
         }
 
-        let agent = ureq::AgentBuilder::new()
-            // No auto-redirects — a 3xx must be re-authorized per hop by the core.
-            .redirects(0)
-            .timeout(REQUEST_TIMEOUT)
-            // Connect ONLY to the vetted IPs; never re-resolve (rebind defense).
-            .resolver(move |_netloc: &str| Ok(pinned.clone()))
-            .build();
+        let agent = match &self.pool {
+            // Serve mode: reuse the cached agent for this (host, port) — its
+            // resolver slot is overwritten with THESE vetted addrs first.
+            Some(pool) => pool.agent_for(&target.host, port, pinned),
+            None => ureq::AgentBuilder::new()
+                // No auto-redirects — a 3xx must be re-authorized per hop by the core.
+                .redirects(0)
+                .timeout(REQUEST_TIMEOUT)
+                // Connect ONLY to the vetted IPs; never re-resolve (rebind defense).
+                .resolver(move |_netloc: &str| Ok(pinned.clone()))
+                .build(),
+        };
 
         // The URL supplies the request-target/path, the Host header, and TLS SNI;
         // the socket still goes to the pinned IP via the resolver above.
@@ -320,12 +399,30 @@ pub fn authorize_and_fetch_range<R: Resolver>(
     range: ByteRange,
 ) -> Result<(Vec<u8>, String), FetchError> {
     let fetcher = SystemFetcher::new().with_credentials(creds.clone());
+    authorize_and_fetch_range_with(url, allowlist, resolver, &fetcher, cap, range)
+}
+
+/// [`authorize_and_fetch_range`] over an injected [`Fetcher`] — the same seam as
+/// [`authorize_and_fetch_with`]. Production serve mode passes a pooled
+/// [`SystemFetcher`]; tests pass a fake edge. The authorization sequence is
+/// byte-for-byte the one-shot path's: decision, then per-hop re-authorization.
+pub fn authorize_and_fetch_range_with<F: Fetcher, R: Resolver>(
+    url: &str,
+    allowlist: &[String],
+    resolver: &R,
+    fetcher: &F,
+    cap: u64,
+    range: ByteRange,
+) -> Result<(Vec<u8>, String), FetchError> {
     let mut target = authorize_fetch(url, allowlist, resolver, cap).map_err(FetchError::Denied)?;
     target.range = Some(range);
 
     for _ in 0..=MAX_REDIRECTS {
         match fetcher.fetch(&target).map_err(FetchError::Transport)? {
-            FetchOutcome::PartialBody { body, content_range } => return Ok((body, content_range)),
+            FetchOutcome::PartialBody {
+                body,
+                content_range,
+            } => return Ok((body, content_range)),
             // Upstream ignored Range and sent the whole object: report it honestly
             // with an empty content-range so the caller does not mislabel it 206.
             FetchOutcome::Body(bytes) => return Ok((bytes, String::new())),

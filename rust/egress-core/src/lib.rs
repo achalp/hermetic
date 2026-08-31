@@ -31,6 +31,7 @@
 
 pub mod fetch;
 pub mod ip;
+pub mod serve;
 pub mod url;
 
 use std::net::IpAddr;
@@ -407,7 +408,10 @@ pub enum FetchOutcome {
     Body(Vec<u8>),
     /// A 206 partial body for a requested range, plus the upstream
     /// `Content-Range` (the caller needs its total to answer HEAD/size probes).
-    PartialBody { body: Vec<u8>, content_range: String },
+    PartialBody {
+        body: Vec<u8>,
+        content_range: String,
+    },
     /// A 3xx with its `Location` — the core re-authorizes this hop before
     /// following (never auto-followed inside the edge).
     Redirect { location: String },

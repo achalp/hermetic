@@ -313,3 +313,53 @@ wasm = primary at /data/input.csv + additional entities materialized to
 /data/entities/<name>.csv (hive entities on wasm fail closed to Docker guidance).
 A failed pre-step degrades to the single active entity — never blocks the
 question. NOT yet live-verified; the King County join is the gate.
+
+**P3 (overnight, 2026-08-31): all four review items — decisions for morning
+review.** Branch `feat/manifest-p3`; every decision numbered so it can be
+overruled cheaply.
+
+1. **Wasm manifest questions are ALL-RANGED now (items 1+2).** The P2
+   materialize-additional-entities path is replaced by run-scoped range-token
+   aliases (`buildManifestWasmAliases` in the shared question-context module):
+   every selected entity — primary included — becomes DuckDB range reads in the
+   worker, one token per single object, one token PER FILE for hive/glob
+   entities (the D21 fan-out; the worker picks offsets, never destinations).
+   No materialization ⇒ no size ceilings; the hive-on-wasm fail-closed guard is
+   REMOVED because the reason for it (whole-file downloads) is gone. The prompt
+   context's wasm-ranged wording forbids pd.read_csv/URLs for these files.
+2. **Budgets** (a runaway bound, not a meter — D20): single object with a
+   manifest `bytesHint` → 2× the hint (a question may scan the columns it needs
+   twice), floored at 64 MB; no hint → the same fixed 512 MB ceiling the
+   extraction path uses; hive files → the existing per-file `budgetForFile`.
+   Investigate multiplies every token budget ×4: sub-steps re-read through the
+   SAME run tokens, and a single-question budget would starve later steps into
+   509s. Tokens are released in each pipeline's `finally` via `releaseRun`.
+3. **Investigate had NO alias plumbing at all** (D21 was ask-only — found by
+   the at-par work, a pre-existing gap): `wasmDuckDbAliases` now threads through
+   run-investigate-query AND investigate-orchestrator, so sub-questions and the
+   final composition all read ranged.
+4. **Client-driven eager (item 3) runs ONLY when the server was not eager**
+   (i.e. wasm connects, where the server cannot extract): after the dialog
+   closes, remaining pending entities extract sequentially under the same 60 s
+   budget (`MANIFEST_EAGER_BUDGET_MS` moved to manifest/shared.ts so the client
+   can import it), yielding INSTANTLY to any user action via a generation
+   counter — a user click always wins the worker. Failures are silent (warm-up,
+   not a gate). Fixed en route: the auto-selected first entity's list row
+   stayed "not read yet" while being the active source.
+5. **Footer prefetch (item 4a)** fires wherever a size is already known and
+   nowhere else: at connect for enumerated multi-file sources (listing sizes;
+   single-object connects skip — probing for a size would cost the request the
+   prefetch saves), and at question time from bytesHints/listings in both
+   pipelines. Fire-and-forget; a miss just pays the cold read as before.
+6. **Item 4b (persistent fetcher) shipped WITH its full test story** — see
+   build-log D41. The wasm-range route now reads through one long-lived
+   `egress-fetch serve` child (pooled TLS; spawn+DNS+TLS ~300–500 ms per read
+   → once per host). Authorization is unchanged and re-run per request.
+
+Proof: 65 manifest + 18 hook + 32 schema-job unit tests; a two-alias DuckDB
+JOIN in the production worker under production CSP (e2e); Rust 81 lib + 7 bin
+tests incl. serve-mode framing and connection-reuse-observed-by-accept-count;
+13 Node client tests incl. a real-bin cross-language handshake. Full suite
+4027 green; ratchet/isolation/format/type-check/coverage/build green.
+Not yet live-verified against a real manifest host: the King County
+cross-entity JOIN remains the author-driven gate.
