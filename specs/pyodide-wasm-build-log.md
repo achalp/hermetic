@@ -1405,3 +1405,43 @@ real engine off the new path; a live probe against the running dev server drove
 the full question flow past materialization to the `__wasm_exec` handoff (the
 stream carried the delivered `/data/input.csv` token — the precise point that
 ENOENT'd now passes); and the orphaned probe run was stopped server-side.
+
+### D39 — Runtime parity: the wasm worker now speaks the docker prelude's language.
+
+The first live wasm question EXECUTED (D38's fix held) and then burned four
+attempts and $1.65 discovering, one NameError at a time, that the worker's Python
+environment was not the one the prompt promised: `to_num` → `declare_check` →
+`finding_trend` → `ModuleNotFoundError: scipy`. Each retry "fixed" one name and
+hit the next. The docker prelude defines ~30 helpers at GLOBAL scope; the wasm
+prelude deliberately stripped docker's infra but silently dropped that surface
+with it.
+
+**Fix 1 — bind, never copy.** Every implementation already lives in the
+`hermetic_runtime` package the executor stages on every run. The wasm prelude now
+BINDS the bare names from the package (frames/coerce/guards/findings/checks/
+series/output/regimes) — one implementation, both runtimes. `progress()` is the
+one deliberate no-op (docker's heartbeat hook has no fd here).
+
+**Fix 2 — conditional scipy.** It is IN the Pyodide distribution but never
+loaded (~30 MB a pandas-only run must not pay for), while the docker image ships
+it — so prompted code legitimately imports it. Both executors now load it exactly
+when the run's code does (the codeNeedsDuckDb shape).
+
+**Two defects found by the fix's own tests:**
+
+- The prelude existed TWICE — `buildWasmPrelude()` (prelude.ts) had zero
+  consumers while `runtime-constants.WASM_PRELUDE` (an inline near-copy that had
+  already drifted) was what shipped. The D39 bindings landed in the unshipped one
+  first — exactly the failure a duplicate invites. Consolidated: the shipped
+  constant IS `buildWasmPrelude()`, and the parity test pins the shipped string.
+- The json NaN patch RE-WRAPPED itself per run in the warm node executor: the
+  wrapper reads the global `_orig_dump` at call time, so run N's wrapper called
+  itself → RecursionError. Latent since D6 (browser workers are fresh; the warm
+  node path never called write_output twice until the new behavioral test did).
+  Now idempotent.
+
+**The ratchet:** `prelude-parity.test.ts` extracts every public `def` from
+`docker/sandbox/prelude.py` and fails unless the SHIPPED wasm prelude binds it —
+plus a gated behavioral test asserting all 30 names are callable in a REAL
+Pyodide namespace and `to_num` actually coerces. Growing the docker surface
+without growing the wasm binding is now a red test, not a paid retry loop.

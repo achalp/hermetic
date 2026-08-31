@@ -51,6 +51,57 @@ describe.skipIf(!OPTED_IN)("wasm executor — real hermetic_runtime under Pyodid
     expect(rev!.value).toBeCloseTo(845, 6);
   }, 120_000); // Pyodide boot + wheel load on a cold first run.
 
+  it("exposes EVERY docker-prelude bare name, callable, in the exec namespace (D39)", async () => {
+    // The live King County question burned four attempts discovering missing
+    // names one NameError at a time. The parity test pins the SOURCE textually;
+    // this proves the bindings actually RESOLVE in a real Pyodide namespace —
+    // a typo'd module path in the binding block passes the textual check and
+    // fails here. to_num also runs for real: the binding must reach the working
+    // implementation, not merely a name.
+    const names = [
+      "to_num",
+      "numeric",
+      "safe_qcut",
+      "safe_float",
+      "safe_int",
+      "assert_fits",
+      "progress",
+      "write_output",
+      "declare_finding",
+      "declare_check",
+      "finding_trend",
+      "finding_step_change",
+      "finding_decompose",
+      "finding_heterogeneity",
+      "finding_outliers",
+      "finding_correlation",
+      "finding_distribution",
+      "finding_share",
+      "finding_superlative",
+      "finding_split_comparison",
+      "finding_yoy",
+      "finding_current_state",
+      "declare_series",
+      "declare_value",
+      "get_findings",
+      "get_series",
+      "get_values",
+      "profile_regimes",
+      "select_center",
+      "zero_policy",
+    ];
+    const code = [
+      "missing = [n for n in " + JSON.stringify(names) + " if not callable(globals().get(n))]",
+      "assert not missing, 'unbound helpers: %s' % missing",
+      "v = to_num(['$1,234', '56%']).tolist()",
+      "assert v == [1234.0, 56.0], v",
+      "from hermetic_runtime.output import write_output as _wo",
+      "_wo(results={'ok': 1})",
+    ].join("\n");
+    const result = await executeSandbox("a\n1\n", code);
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  }, 240_000);
+
   it("surfaces a Python error as an error ExecutionResult (exit path parity)", async () => {
     const result = await executeSandbox(CSV, "raise ValueError('boom')");
     expect(result.success).toBe(false);
