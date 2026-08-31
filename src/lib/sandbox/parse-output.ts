@@ -1,4 +1,35 @@
 /**
+ * The part of a Python traceback that says WHAT went wrong.
+ *
+ * Every failed-execution log line used to record `error.slice(0, 200)` — the HEAD
+ * of the traceback. For a Python traceback that is pure boilerplate: `Traceback
+ * (most recent call last):` plus the outermost frames. The exception type and
+ * message, the one thing a reader needs, is the LAST line. So the logs reliably
+ * showed where a run died and never why, and diagnosing anything meant re-running
+ * to exhaustion just to reach the final "Pipeline error" line that carries the
+ * whole text (run 72319f5a: four attempts to learn one sentence).
+ *
+ * This returns the deepest source location AND the terminal exception line, which
+ * together are what someone reading a log actually needs.
+ */
+export function pythonErrorSummary(text: string, max = 300): string {
+  const lines = text
+    .split("\n")
+    .map((l) => l.trimEnd())
+    .filter((l) => l.trim().length > 0);
+  if (lines.length === 0) return "";
+  // The terminal exception line: Python puts it last. Fall back to the last line
+  // for non-traceback output (a bare stderr message, a C-level abort).
+  const exception = [...lines].reverse().find((l) => /^\S[\w.]*(Error|Exception)\b/.test(l));
+  // The DEEPEST frame is the innermost `File "...", line N` — i.e. the last one.
+  const where = [...lines].reverse().find((l) => /File "[^"]+", line \d+/.test(l));
+  const summary = [where?.trim(), (exception ?? lines[lines.length - 1]).trim()]
+    .filter(Boolean)
+    .join(" → ");
+  return summary.slice(0, max);
+}
+
+/**
  * Runtime-agnostic sandbox output parsing — the shared contract for turning a
  * finished script run (exit code + files in the work dir) into an
  * ExecutionResult.

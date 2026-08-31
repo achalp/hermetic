@@ -1,4 +1,5 @@
 import { mkdir, writeFile, appendFile, readdir, stat, rm } from "fs/promises";
+import { pythonErrorSummary } from "@/lib/sandbox/parse-output";
 import { join } from "path";
 import { getRunId } from "@/lib/run-context";
 import { logger } from "@/lib/logger";
@@ -127,7 +128,9 @@ export function recordAttemptOutcome(
     errorKind: outcome.errorKind,
     executionMs: outcome.executionMs,
     hasResults: outcome.hasResults,
-    errorHead: outcome.error?.slice(0, 500),
+    // Keep MORE than the log lines do (a journal is read after the fact), but
+    // still summarize: the head of a traceback is boilerplate either way.
+    errorHead: outcome.error ? pythonErrorSummary(outcome.error, 500) : undefined,
   });
   if (!outcome.success && outcome.error) {
     recordRunArtifact(`attempt-${pad(attempt)}.error.txt`, outcome.error);

@@ -12,7 +12,7 @@ import {
 } from "./docker-utils";
 import { sandboxMemoryRunArgs } from "./memory-budget";
 import { sandboxHardeningRunArgs } from "./hardening";
-import { classifyThrownError } from "./parse-output";
+import { classifyThrownError, pythonErrorSummary } from "./parse-output";
 import { buildTarArchive, type StageFile } from "./tar-stage";
 import { streamExec } from "./stream-exec";
 import { withWakeLock } from "@/lib/wake-lock";
@@ -311,7 +311,9 @@ export async function executeSandbox(
     logger.info("Docker: execution finished", {
       ms: Date.now() - start,
       success: result.success,
-      ...(result.success ? {} : { errorHead: result.error.slice(0, 200) }),
+      // The SUMMARY, not the head: a traceback's first 200 chars are boilerplate
+      // and its last line is the actual exception (see pythonErrorSummary).
+      ...(result.success ? {} : { error: pythonErrorSummary(result.error) }),
     });
     return result;
   } catch (err) {
@@ -320,7 +322,7 @@ export async function executeSandbox(
     logger.warn("Docker: execution threw", {
       ms: Date.now() - start,
       errorKind,
-      errorHead: errorMsg.slice(0, 200),
+      error: pythonErrorSummary(errorMsg),
     });
     return {
       success: false,
