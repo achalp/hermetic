@@ -31,6 +31,33 @@ describe("DUCKDB_BOOT_FN_SOURCE — CSP-compatible asset loading", () => {
     expect(src).not.toContain("extensions.duckdb.org");
   });
 
+  it("opens the DB with the filesystem config that makes ranged reads POSSIBLE (D36)", () => {
+    // Without db.open(), the C++ side defaults to forceFullHttpReads=true in
+    // this build (verified live via a file-info dump — and registerFileURL's
+    // directIO argument does NOT drive it). Force-full skips both size probes
+    // and issues a bare whole-object GET, which /api/wasm-range refuses (416):
+    // that was the first live wasm connect's death. These three flags are the
+    // fix, and each is load-bearing:
+    expect(DUCKDB_BOOT_FN_SOURCE).toContain("forceFullHTTPReads: false"); // ranges allowed
+    expect(DUCKDB_BOOT_FN_SOURCE).toContain("reliableHeadRequests: true"); // D31's HEAD 206 is the size probe
+    expect(DUCKDB_BOOT_FN_SOURCE).toContain("allowFullHTTPReads: false"); // whole-object fallback disabled
+    // ...and the open must happen BEFORE the connection exists.
+    expect(DUCKDB_BOOT_FN_SOURCE.indexOf("db.open(")).toBeLessThan(
+      DUCKDB_BOOT_FN_SOURCE.indexOf("db.connect()")
+    );
+  });
+
+  it("serializes query results as REAL JSON, not Arrow's toString (D36)", () => {
+    // Arrow's Table.toString() is not JSON once real data appears — an embedded
+    // quote in any string value breaks the Python shim's json.loads (found live
+    // on the housing dataset's label columns). The engine must build rows and
+    // JSON.stringify them, with BigInt/DECIMAL handled like duckdb-engine.ts.
+    expect(DUCKDB_BOOT_FN_SOURCE).toContain("JSON.stringify(rows)");
+    expect(DUCKDB_BOOT_FN_SOURCE).not.toMatch(/conn\.query\(String\(sql\)\)\.toString\(\)/);
+    expect(DUCKDB_BOOT_FN_SOURCE).toContain("DecimalBigNum");
+    expect(DUCKDB_BOOT_FN_SOURCE).toContain("scaleDecimal");
+  });
+
   it("uses directIO=true so httpfs range-reads instead of buffering whole objects", () => {
     // 4th arg of registerFileURL; false buffers the entire file (D18: 525MB / 14.5s).
     expect(src).toContain("duck.DuckDBDataProtocol.HTTP, true)");

@@ -53,6 +53,22 @@ async function __hermeticBootDuckDb(base, aliases) {
     duck.BROWSER_RUNTIME
   );
   await db.instantiate();
+  // ── The filesystem config IS the ranged-read switch (build log D36) ──
+  // Without db.open(), the C++ side defaults to forceFullHttpReads=true in this
+  // build (verified live: FILEINFO dump showed force=true under BOTH values of
+  // registerFileURL's directIO arg — that 4th parameter does not drive it).
+  // Force-full means openFile skips both size probes and issues a bare
+  // whole-object GET, which /api/wasm-range refuses by design (416) — that was
+  // the first live wasm connect's death. So:
+  //   - forceFullHTTPReads: false → range requests are allowed at all;
+  //   - reliableHeadRequests: true → the size probe is one HEAD (Range: bytes=0-),
+  //     which our route answers with 206 + Content-Length (the D31 contract);
+  //   - allowFullHTTPReads: false → the whole-object fallback is DISABLED, so a
+  //     future regression fails as a clean DuckDB error instead of a 64MB read.
+  db.open({
+    path: ":memory:",
+    filesystem: { reliableHeadRequests: true, allowFullHTTPReads: false, forceFullHTTPReads: false },
+  });
   const conn = db.connect();
   // Same-origin extension repository. DuckDB's built-in default points at a public
   // CDN, which connect-src 'self' correctly blocks (D18 measured it as status 0),
@@ -72,7 +88,62 @@ async function __hermeticBootDuckDb(base, aliases) {
       db.registerFileURL(a.name, href, duck.DuckDBDataProtocol.HTTP, true);
     }
   }
-  self.__hermeticDuckQuery = (sql) => conn.query(String(sql)).toString();
+  // ── Arrow → real JSON (build log D36) ──
+  // The first cut returned conn.query(sql).toString() and let Python json.loads it.
+  // Arrow's toString() is NOT JSON once real data appears (an embedded quote in any
+  // string value breaks it — found live on the housing dataset's label columns). This
+  // mirrors duckdb-engine.ts's mapper: BigInt → number-or-string, DECIMAL unscaled
+  // ints scaled by column type, Date → ISO, nested values recursed — then ONE
+  // JSON.stringify produces what the Python shim actually parses.
+  const normalize = (v) => {
+    if (v === null || v === undefined) return null;
+    const t = typeof v;
+    if (t === "bigint") { const n = Number(v); return Number.isSafeInteger(n) ? n : v.toString(); }
+    if (t === "number" || t === "string" || t === "boolean") return v;
+    if (v instanceof Date) return v.toISOString();
+    if (ArrayBuffer.isView(v)) {
+      const ctorName = (v.constructor && v.constructor.name) || "";
+      if (ctorName === "DecimalBigNum") { const n = Number(v.toString()); return Number.isFinite(n) ? n : v.toString(); }
+      return Array.from(v, (b) => normalize(b));
+    }
+    if (Array.isArray(v)) return v.map(normalize);
+    if (t === "object") {
+      if (typeof v.toJSON === "function") return normalize(v.toJSON());
+      const out = {};
+      for (const k of Object.keys(v)) out[k] = normalize(v[k]);
+      return out;
+    }
+    return String(v);
+  };
+  const scaleDecimal = (value, scale) => {
+    let text = String(value.toString());
+    if (scale <= 0) { const n = Number(text); return Number.isSafeInteger(n) ? n : text; }
+    const neg = text.startsWith("-");
+    if (neg) text = text.slice(1);
+    text = text.padStart(scale + 1, "0");
+    const cut = text.length - scale;
+    const composed = (neg ? "-" : "") + text.slice(0, cut) + "." + text.slice(cut);
+    const n = Number(composed);
+    return Number.isFinite(n) ? n : composed;
+  };
+  self.__hermeticDuckQuery = (sql) => {
+    const table = conn.query(String(sql));
+    const fields = table.schema.fields;
+    const rows = table.toArray().map((row) => {
+      const record = row.toJSON();
+      const out = {};
+      for (const f of fields) {
+        const name = String(f.name);
+        const cell = record[name];
+        out[name] =
+          cell != null && ArrayBuffer.isView(cell) && typeof (f.type && f.type.scale) === "number"
+            ? scaleDecimal(cell, f.type.scale)
+            : normalize(cell);
+      }
+      return out;
+    });
+    return JSON.stringify(rows);
+  };
 }
 `;
 

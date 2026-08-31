@@ -1317,3 +1317,52 @@ predate this work; both are real:
 
 The tell was a test that passed in isolation and failed ~2 of 3 full runs. Re-running
 until green would have shipped both.
+
+### D36 — The live wasm connect, closed: three defects found by reproducing it myself.
+
+The third live attempt still died at a 416 + the (now legible) `_setThrew` crash.
+Instead of another log-fragment round trip, I drove the user's running dev server
+with a headless browser replicating the exact two-hop client, capturing every
+request the worker made to `/api/wasm-range` — method, Range header, status — plus
+an XHR tracer inside the worker for the JS stack, and a file-info dump patched into
+the (gitignored) bundle artifact. Three defects, each invisible from the logs alone:
+
+**1. `forceFullHttpReads` defaults TRUE in this build — and `directIO` does not
+drive it.** The captured stack put the rangeless GET at `openFile`'s whole-object
+fallback, and the file-info dump showed `forceFullHttpReads: true` under BOTH
+values of `registerFileURL`'s directIO argument. We never called `db.open(config)`,
+so C++ defaults ruled. The D18 comment ("directIO=true → ranged reads") described
+the wrong knob — the ranged spike measurement was real, but the switch was always
+the FILESYSTEM CONFIG. Fix, each flag load-bearing: `forceFullHTTPReads: false`
+(ranges allowed at all), `reliableHeadRequests: true` (the size probe becomes one
+HEAD + `Range: bytes=0-`, exactly the D31 206 contract), `allowFullHTTPReads:
+false` (the whole-object fallback is DISABLED — a future regression fails as a
+clean DuckDB error instead of a 64 MB read).
+
+**2. The API rate limiter throttled the scan.** With the size probe fixed, ranged
+reads flowed — then died mid-scan on `429 Too many requests`, and the flooded
+shared bucket starved the unrelated `/complete` POST too. DuckDB's sync-XHR scan
+is legitimately a burst of hundreds of small GETs; a request-rate cap sized for
+human traffic breaks it by design. `/api/wasm-range/` is now exempt from the RATE
+cap only (the loopback origin gate still applies): the route's unguessable token +
+per-token BYTE budget bound a runaway client more meaningfully than a request
+counter ever did there.
+
+**3. Arrow's `toString()` is not JSON.** With transport fixed, the profile crashed
+in the Python shim: the engine returned `conn.query(sql).toString()` and the shim
+`json.loads`'d it — fine for DESCRIBE, broken the moment a real string value
+contains a quote (found live on the housing label columns). The worker engine now
+builds rows and `JSON.stringify`s them with duckdb-engine.ts's exact value mapping
+(BigInt → number-or-string, DECIMAL scaled by column type, Date → ISO).
+
+**Result: the D27 worker extraction completed live for the first time** —
+`exitCode 0`, 762,840 rows profiled off `housing-landscape.parquet` over ranged
+reads (206s walking row groups of an 11 MB object), `geography_id` typed string
+with leading zeros intact, stored via `/complete`. Verified again AFTER stripping
+every probe (tracer removed, bundle rebuilt pristine): still green.
+
+Honest ledger: this is the third onion layer on the same path (HEAD-200, then
+force-full + rate cap + toString), each shipped behind unit tests that could not
+see it. The e2e gap — a browser-driven worker extraction against the real route
+with a local parquet fixture — is now the obvious missing test; the repro script
+is its prototype and should graduate into the gated e2e suite.
