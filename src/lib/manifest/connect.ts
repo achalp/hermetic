@@ -18,7 +18,8 @@ import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { RemoteCreds } from "@/lib/contracts/storage-types";
 import type { DatasetManifest, ManifestEntity } from "@/lib/contracts/dataset-manifest";
 import { parseDatasetManifestText } from "./parse";
-import { enforceSameHost } from "./same-host";
+import { looksLikeStac, resolveStacManifest } from "./stac";
+import { partitionManifestEntities } from "./same-host";
 import { ManifestError, MAX_MANIFEST_BYTES, MANIFEST_EAGER_BUDGET_MS } from "./shared";
 import type { EntityState, ManifestRecord, ManifestStore } from "./store";
 import { normalizeRemoteParquetUrl } from "@/lib/parquet/partition";
@@ -99,20 +100,37 @@ export async function connectDatasetManifest(
     );
   }
   const manifestHash = createHash("sha256").update(text).digest("hex");
-  const parsed = parseDatasetManifestText(text, args.url);
-
-  const { kept, excluded } = enforceSameHost(parsed);
-  if (kept.length === 0) {
-    // Fail CLOSED (spec §5.3): every entity pointed off-host. Name the policy
-    // so a legitimate publisher understands what to change.
+  // STAC catalogs are a TREE of documents, so they route to the capped
+  // traversal (which reuses THIS flow's vetted fetcher for sub-documents);
+  // everything else goes through the pure single-document adapters.
+  let stacJson: unknown;
+  try {
+    stacJson = JSON.parse(text.replace(/^\ufeff/, ""));
+  } catch {
+    stacJson = undefined;
+  }
+  const parsed = looksLikeStac(stacJson)
+    ? await resolveStacManifest(stacJson, args.url, {
+        fetchText: (url) => deps.fetchManifestText(url, args.creds),
+      })
+    : parseDatasetManifestText(text, args.url);
+  if (parsed.entities.length === 0) {
     throw new ManifestError(
-      `Every entity in this manifest lives on a different host than the manifest ` +
-        `itself (${excluded.length} excluded). Hermetic only reads entities from the ` +
-        `manifest's own host.`
+      "This STAC catalog yielded no readable parquet collections within the traversal limits."
+    );
+  }
+
+  // REVISED host policy (2026-08-31): the manifest's named hosts are the trust
+  // set — entities are no longer excluded for being cross-host. Only URLs with
+  // no derivable storage identity are dropped (they cannot be granted egress).
+  const { kept, excluded } = partitionManifestEntities(parsed);
+  if (kept.length === 0) {
+    throw new ManifestError(
+      `No entity in this manifest has a readable URL (${excluded.length} excluded).`
     );
   }
   if (excluded.length > 0) {
-    logger.warn("Manifest connect: cross-host entities excluded", {
+    logger.warn("Manifest connect: unreadable entity URLs excluded", {
       manifestUrl: args.url,
       excluded: excluded.length,
     });

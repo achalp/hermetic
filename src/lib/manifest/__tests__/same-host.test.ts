@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { storageIdentity, sameStorageHost, enforceSameHost } from "@/lib/manifest/same-host";
+import {
+  storageIdentity,
+  sameStorageHost,
+  partitionManifestEntities,
+} from "@/lib/manifest/same-host";
 import type { DatasetManifest } from "@/lib/contracts/dataset-manifest";
 
 /**
@@ -60,48 +64,43 @@ describe("storageIdentity", () => {
   });
 });
 
-describe("enforceSameHost", () => {
+describe("partitionManifestEntities — REVISED host policy (2026-08-31)", () => {
   const manifest = (entities: { name: string; url: string }[]): DatasetManifest => ({
     manifestUrl: "https://acct.blob.core.windows.net/data/manifest.json",
     format: "files-array",
     entities,
   });
 
-  it("keeps same-host entries and drops cross-host ones WITH a reason", () => {
-    const { kept, excluded } = enforceSameHost(
+  it("KEEPS cross-host entities — the manifest's named hosts are the trust set", () => {
+    // Author decision: we already trust the manifest (its host owner controls
+    // every URL in it); the run's egress is the union of SELECTED entities'
+    // hosts, and the proxy's resolve-and-reject stays the boundary beneath.
+    const { kept, excluded } = partitionManifestEntities(
+      manifest([
+        { name: "own-host", url: "https://acct.blob.core.windows.net/data/ok.parquet" },
+        { name: "aws", url: "https://overturemaps-us-west-2.s3.us-west-2.amazonaws.com/x.parquet" },
+        { name: "s3-scheme", url: "s3://other-bucket/x.parquet" },
+      ])
+    );
+    expect(kept.map((e) => e.name)).toEqual(["own-host", "aws", "s3-scheme"]);
+    expect(excluded).toEqual([]);
+  });
+
+  it("still EXCLUDES an entity whose URL has no storage identity, with a reason", () => {
+    const { kept, excluded } = partitionManifestEntities(
       manifest([
         { name: "ok", url: "https://acct.blob.core.windows.net/data/ok.parquet" },
-        { name: "evil", url: "https://evil.example.com/exfil.parquet" },
-        { name: "sneaky-s3", url: "s3://other-bucket/x.parquet" },
+        { name: "junk", url: "not a url at all" },
       ])
     );
     expect(kept.map((e) => e.name)).toEqual(["ok"]);
-    expect(excluded.map((e) => e.name)).toEqual(["evil", "sneaky-s3"]);
-    expect(excluded[0]!.reason).toMatch(/cross-host/);
+    expect(excluded[0]!.name).toBe("junk");
+    expect(excluded[0]!.reason).toMatch(/unreadable URL/);
   });
 
-  it("keeps s3:// entries in a manifest served from that bucket's https vhost", () => {
-    const m: DatasetManifest = {
-      manifestUrl: "https://bkt.s3.us-east-1.amazonaws.com/manifest.json",
-      format: "files-array",
-      entities: [{ name: "e", url: "s3://bkt/data/e.parquet" }],
-    };
-    expect(enforceSameHost(m).kept).toHaveLength(1);
-  });
-
-  it("an ALL-cross-host manifest keeps nothing — the caller fails the connect closed", () => {
-    const { kept, excluded } = enforceSameHost(
-      manifest([{ name: "evil", url: "https://evil.example.com/x.parquet" }])
-    );
+  it("an all-unreadable manifest keeps nothing — the caller fails the connect closed", () => {
+    const { kept, excluded } = partitionManifestEntities(manifest([{ name: "junk", url: "::::" }]));
     expect(kept).toHaveLength(0);
     expect(excluded).toHaveLength(1);
-  });
-
-  it("scheme difference alone (http vs https) is not cross-host", () => {
-    const { kept } = enforceSameHost(
-      manifest([{ name: "e", url: "http://acct.blob.core.windows.net/data/e.parquet" }])
-    );
-    // The egress core upgrades/validates the scheme; the NAMESPACE is the same.
-    expect(kept).toHaveLength(1);
   });
 });

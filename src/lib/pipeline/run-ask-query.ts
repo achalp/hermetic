@@ -24,6 +24,7 @@ import {
   resolveManifestQuestion,
   buildManifestQuestionContext,
   buildManifestWasmAliases,
+  manifestEgressHosts,
 } from "@/lib/manifest/question-context";
 import {
   buildHiveAliases,
@@ -522,6 +523,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
         // worker reads only the row groups the question touches. This removed
         // the P2 CSV ceilings and the hive fail-closed guard in one move.
         let manifestContext: string | undefined;
+        let manifestEgressAllow: string[] | undefined;
         if (context.manifest && isRemote) {
           const resolvedManifest = resolveManifestQuestion(context.manifest, csvId);
           if (sandboxRuntime === "wasm") {
@@ -546,6 +548,9 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             ).catch(() => {});
           } else {
             manifestContext = buildManifestQuestionContext(resolvedManifest, { kind: "docker" });
+            // Revised host policy (2026-08-31): entities may live on different
+            // hosts — the run's egress allowlist is their UNION, not the primary's.
+            manifestEgressAllow = manifestEgressHosts(resolvedManifest);
           }
           logger.info("Manifest question: multi-entity context", {
             runId: getRunId(),
@@ -608,6 +613,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             localMountPath,
             inputParquetPath: warehouseParquetFile,
             remoteAuthSubst,
+            allowedEgressHosts: manifestEgressAllow,
           });
         } else {
           pipelineResult = await runPipeline(stored.schema, csvContent || "", question, {
@@ -628,6 +634,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             wasmDuckDbAliases,
             purpose,
             remoteAuthSubst,
+            allowedEgressHosts: manifestEgressAllow,
           });
         }
         // The host-materialized remote CSV is consumed once the worker fetched it.

@@ -363,3 +363,47 @@ tests incl. serve-mode framing and connection-reuse-observed-by-accept-count;
 4027 green; ratchet/isolation/format/type-check/coverage/build green.
 Not yet live-verified against a real manifest host: the King County
 cross-entity JOIN remains the author-driven gate.
+
+## 12. Revision 2 (2026-08-31): STAC + the revised host rule
+
+**Host policy revision (author decision).** §5.3's strict same-host gate is
+replaced: **the manifest's named hosts ARE the trust set.** Author's reasoning,
+recorded verbatim: "we are already blindly trusting the manifest" — the
+manifest host's owner controls every entity URL in it, so hostile DATA was
+always possible; cross-host entries merely add read-only GET destinations,
+each still behind the egress core's resolve-and-reject, GET-only verb, and
+byte caps. What still fails closed: entity URLs with no derivable storage
+identity are excluded; a manifest with zero readable entities fails the
+connect; a run's egress allowlist is the union of the SELECTED entities'
+hosts only (named-but-unselected hosts get no grant); the SSRF guard drops
+internal hosts per entity. Implementation: `partitionManifestEntities`
+(replaces `enforceSameHost`), `manifestEgressHosts` union threaded through
+BOTH pipelines (`allowedEgressHosts` → planSandboxRouting's docker-egress
+plan), batch schema extraction unions its targets' hosts; wasm was already
+per-entity (each range token carries its own allowlist).
+
+**STAC adapter (fourth format — `lib/manifest/stac.ts`).** STAC is a TREE of
+documents, so it is a capped traversal (64 sub-fetches, depth 4, both fail
+SOFT keeping what was found), not a pure adapter; it reuses the connect
+flow's vetted fetcher. Mapping validated against the LIVE Overture catalog:
+collection → entity; `table:row_count` → rowCountHint; `table:columns`
+(name+description) → columnDocs; a root `latest` field follows only the
+current release; child/item fetches stay on the CATALOG's storage identity
+(a catalog cannot chain origins) while asset URLs may be cross-host — the
+revised policy's whole point. Entity URL: one item → its exact https asset;
+many items → the first item's asset directory as an `s3://bucket/…/*.parquet`
+glob (converted from the vhost href, because LIST enumeration and vhost-only
+egress derivation both speak s3://); a multi-file collection with NO S3 asset
+is skipped loudly — never truncated to one file, partial data being the one
+failure mode worse than none. Asset preference: S3-identity first.
+
+**Verified live**: `https://stac.overturemaps.org/catalog.json` resolves to
+15 entities (building 2.53B rows, segment 350M, place 74M, …) with correct
+s3 globs for multi-file types and exact https URLs for single-file types,
+through the real egress-vetted fetcher, in ~4s. Gated live test:
+`HERMETIC_LIVE_STAC_TEST=1` (stac-live.test.ts). Live columns carry no
+descriptions today, so columnDocs is legitimately absent for Overture.
+
+Follow-up noted, not built: feeding column NAMES (present without
+descriptions) into the selection index; azure enumeration for multi-file
+azure-only catalogs.

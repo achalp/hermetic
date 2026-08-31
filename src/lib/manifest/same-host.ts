@@ -1,24 +1,25 @@
 /**
- * The STRICT same-host gate (spec §5.3, §8 — decided: no override in v1).
+ * Manifest host policy (spec §5.3, §8 — REVISED 2026-08-31, author decision).
  *
- * "Same host" means the same STORAGE NAMESPACE, not the same URL string: a
- * manifest served from `https://bucket.s3.us-west-2.amazonaws.com/…` may
- * legitimately name its own objects as `s3://bucket/…`, and those are the same
- * place. So both sides normalize to a storage identity — (namespace, key) —
- * and equality is byte-equality on that pair:
+ * v1 was a STRICT same-host gate: every entity had to share the manifest's own
+ * storage identity, and cross-host entries were dropped. The author redefined
+ * the rule: **the manifest's named hosts ARE the trust set** — "we are already
+ * blindly trusting the manifest" (its host owner controls every entity URL, so
+ * hostile data was always possible; cross-host merely adds more read-only GET
+ * destinations, each still behind the egress core's resolve-and-reject, GET-only
+ * verb, and byte caps). What this enables: real-world catalogs (Overture STAC)
+ * whose index lives on one host and data on another.
  *
- *   s3://bucket/…                          → ("s3", "bucket")
- *   https://bucket.s3[.region].amazonaws…  → ("s3", "bucket")
- *   gs://bucket/…                          → ("gs", "bucket")
- *   https://bucket.storage.googleapis.com  → ("gs", "bucket")
- *   https://storage.googleapis.com/bucket/…→ ("gs", "bucket")   (path-style)
- *   anything else                          → (scheme, host)     (Azure lands here)
+ * What still fails closed:
+ *   - an entity URL that does not parse to a storage identity is EXCLUDED;
+ *   - a manifest where NOTHING parses fails the connect;
+ *   - the egress allowlist for any run is the union of the SELECTED entities'
+ *     derived hosts — named-but-unselected hosts get no grant;
+ *   - the proxy's resolve-and-reject remains the boundary beneath all of it.
  *
- * Violating entries are DROPPED with a reason (surfaced in the entity browser as
- * "excluded: cross-host"); if ALL entries violate, the caller fails the connect
- * closed. This is defense in DEPTH: the egress proxy's resolve-and-reject remains
- * the boundary beneath it — this gate exists so a hostile manifest cannot even
- * *name* another origin, and so the run's egress allowlist stays one host wide.
+ * Storage identity normalization is unchanged (s3://bucket ≡ bucket vhost etc.)
+ * and still used to compare hosts where equality matters (attach validation,
+ * STAC traversal staying on the catalog's host).
  */
 import type {
   DatasetManifest,
@@ -76,17 +77,23 @@ export interface SameHostResult {
   excluded: ExcludedEntry[];
 }
 
-/** Partition a manifest's entities into same-host (kept) and cross-host (excluded). */
-export function enforceSameHost(manifest: DatasetManifest): SameHostResult {
+/**
+ * Partition a manifest's entities into readable (kept) and unreadable
+ * (excluded). Under the revised policy the manifest's own hosts are trusted, so
+ * the ONLY exclusion is an entity URL that fails to parse to a storage
+ * identity — those cannot be granted egress safely and are dropped with a
+ * reason the entity browser can show.
+ */
+export function partitionManifestEntities(manifest: DatasetManifest): SameHostResult {
   const kept: ManifestEntity[] = [];
   const excluded: ExcludedEntry[] = [];
   for (const e of manifest.entities) {
-    if (sameStorageHost(e.url, manifest.manifestUrl)) kept.push(e);
+    if (storageIdentity(e.url) !== null) kept.push(e);
     else {
       excluded.push({
         name: e.name,
         url: e.url,
-        reason: "cross-host: entity is not on the manifest's own host (excluded by policy)",
+        reason: "unreadable URL: no storage identity could be derived (excluded)",
       });
     }
   }

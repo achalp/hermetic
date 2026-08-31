@@ -347,13 +347,22 @@ export async function extractRemoteParquetSchemaBatch(
   const started = Date.now();
 
   try {
-    const policy = egressPolicyFor(targets[0]!.readUrl, creds);
-    if (policy.mode === "deny" || !policy.hosts?.length) {
+    // Revised host policy (2026-08-31): a manifest's entities may live on
+    // DIFFERENT hosts — the batch's egress allowlist is the union of every
+    // target's derived hosts. A target with no derivable host contributes
+    // nothing (its read will be denied at the proxy and recorded as that
+    // entity's failure); a batch where NOTHING derives still fails closed.
+    const hostSet = new Set<string>();
+    for (const t of targets) {
+      const p = egressPolicyFor(t.readUrl, creds);
+      if (p.mode === "allowlist") for (const h of p.hosts ?? []) hostSet.add(h);
+    }
+    if (hostSet.size === 0) {
       throw new Error(
         "Refusing to read this manifest's entities: no safe egress host could be derived."
       );
     }
-    egress = await setupEgressNetwork(containerId.slice(-12), policy.hosts);
+    egress = await setupEgressNetwork(containerId.slice(-12), [...hostSet]);
     const runArgs = ["run", "-d", "--name", containerId, "--network", egress.networkName];
     for (const [k, v] of Object.entries(egress.env)) runArgs.push("-e", `${k}=${v}`);
     // sleep outlives budget + one overshooting entity, with margin.

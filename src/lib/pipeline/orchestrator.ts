@@ -77,6 +77,12 @@ export interface PipelineOptions {
    * forensic record.
    */
   remoteAuthSubst?: RemoteAuthSubst;
+  /**
+   * Explicit docker egress allowlist. Set for multi-entity manifest questions
+   * (the union of the selected entities' hosts — revised host policy
+   * 2026-08-31); absent, remote runs derive the single-source host as before.
+   */
+  allowedEgressHosts?: string[];
 }
 
 /**
@@ -107,6 +113,7 @@ export async function runPipeline(
     wasmDuckDbAliases,
     purpose,
     remoteAuthSubst,
+    allowedEgressHosts,
   } = options;
   // Mutable: active skills append their helper modules below.
   let additionalFiles = options.additionalFiles;
@@ -437,6 +444,7 @@ export async function runPipeline(
       inputParquetPath,
       wasmFetchInputs,
       wasmDuckDbAliases,
+      allowedEgressHosts,
       hooks: ambientSandboxHooks(),
       wasmExecutor: ambientWasmExecutor(),
       // Container attribution label — like hooks, injected here because the
@@ -587,6 +595,7 @@ export async function runPipeline(
         inputParquetPath,
         wasmFetchInputs,
         wasmDuckDbAliases,
+        allowedEgressHosts,
         hooks: ambientSandboxHooks(),
         wasmExecutor: ambientWasmExecutor(),
         runId: getRunId(),
@@ -719,6 +728,8 @@ export async function runPipelineWithCode(
     inputParquetPath?: string;
     /** Real S3 creds spliced into the executed copy only (finding C1). */
     remoteAuthSubst?: RemoteAuthSubst;
+    /** Explicit docker egress allowlist (multi-host manifest questions). */
+    allowedEgressHosts?: string[];
   } = {}
 ): Promise<PipelineResult> {
   logger.debug("Re-executing edited code", {
@@ -734,6 +745,7 @@ export async function runPipelineWithCode(
     csvId: options.csvId,
     localMountPath: options.localMountPath,
     inputParquetPath: options.inputParquetPath,
+    allowedEgressHosts: options.allowedEgressHosts,
     hooks: ambientSandboxHooks(),
     wasmExecutor: ambientWasmExecutor(),
     runId: getRunId(),

@@ -35,6 +35,7 @@ import {
   resolveManifestQuestion,
   buildManifestQuestionContext,
   buildManifestWasmAliases,
+  manifestEgressHosts,
 } from "@/lib/manifest/question-context";
 import { getRangeRegistry, getWarmCache } from "@/lib/sandbox/wasm/range-singleton";
 import { prefetchFooters } from "@/lib/sandbox/wasm/footer-prefetch";
@@ -355,6 +356,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
         // grant covers all); WASM: primary at /data/input.csv, additional
         // entities materialized and delivered like workbook sheets.
         let wasmDuckDbAliases: { name: string; url: string }[] | undefined;
+        let manifestEgressAllow: string[] | undefined;
         if (context.manifest && isRemote) {
           const resolvedManifest = resolveManifestQuestion(context.manifest, csvId);
           if (sandboxRuntime === "wasm") {
@@ -384,6 +386,9 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
             localFileContext = buildManifestQuestionContext(resolvedManifest, {
               kind: "docker",
             });
+            // Union of the selected entities' hosts (revised host policy
+            // 2026-08-31) — every sub-step runs with the same grant.
+            manifestEgressAllow = manifestEgressHosts(resolvedManifest);
           }
           logger.info("Manifest question: multi-entity context (investigate)", {
             entities: resolvedManifest.entities.map((e) => e.name),
@@ -441,6 +446,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
               remoteAuthSubst,
               wasmFetchInputs,
               wasmDuckDbAliases,
+              allowedEgressHosts: manifestEgressAllow,
             });
             await composeAndStreamDashboard({
               executionResult: cheap.executionResult,
@@ -604,6 +610,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           inputParquetPath: warehouseParquetFile,
           wasmFetchInputs,
           wasmDuckDbAliases,
+          allowedEgressHosts: manifestEgressAllow,
           runtime: sandboxRuntime,
           model: codeGenModel,
           originalQuestion: question,

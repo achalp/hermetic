@@ -14,14 +14,17 @@ vi.mock("@/lib/sandbox/docker-utils", () => ({
 }));
 
 const teardown = vi.fn(async () => {});
+const setupEgress = vi.fn(async (_id: string, _hosts: string[]) => ({
+  networkName: "net-x",
+  env: {},
+  proxyLogs: async () => "",
+  teardown,
+}));
 vi.mock("@/lib/sandbox/egress", () => ({
-  egressPolicyFor: () => ({ mode: "allowlist", hosts: ["acct.blob.core.windows.net"] }),
-  setupEgressNetwork: vi.fn(async () => ({
-    networkName: "net-x",
-    env: {},
-    proxyLogs: async () => "",
-    teardown,
-  })),
+  // Derive per-URL like the real thing (host of the URL), so the union
+  // behavior is observable.
+  egressPolicyFor: (url: string) => ({ mode: "allowlist", hosts: [new URL(url).host] }),
+  setupEgressNetwork: (id: string, hosts: string[]) => setupEgress(id, hosts),
 }));
 
 import { extractRemoteParquetSchemaBatch } from "@/lib/parquet/schema-extractor";
@@ -64,6 +67,7 @@ const target = (name: string) => ({
 beforeEach(() => {
   run.mockReset();
   teardown.mockClear();
+  setupEgress.mockClear();
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -131,5 +135,28 @@ describe("extractRemoteParquetSchemaBatch", () => {
     );
     expect(run.mock.calls.filter((c) => c[1][0] === "rm")).toHaveLength(1);
     expect(teardown).toHaveBeenCalled();
+  });
+
+  it("multi-host targets get the UNION as the egress allowlist (2026-08-31 policy)", async () => {
+    scriptDocker(["ok", "ok"]);
+    const { results } = await extractRemoteParquetSchemaBatch(
+      [
+        target("housing"),
+        {
+          name: "mirror",
+          readUrl: "https://overturemaps-us-west-2.s3.us-west-2.amazonaws.com/x.parquet",
+          isHivePartitioned: false,
+        },
+      ],
+      undefined,
+      60_000
+    );
+    expect(results.size).toBe(2);
+    expect(setupEgress).toHaveBeenCalledTimes(1);
+    const hosts = setupEgress.mock.calls[0]![1] as unknown as string[];
+    expect([...hosts].sort()).toEqual([
+      "acct.blob.core.windows.net",
+      "overturemaps-us-west-2.s3.us-west-2.amazonaws.com",
+    ]);
   });
 });
