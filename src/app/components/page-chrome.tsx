@@ -40,6 +40,7 @@ export interface PageChromeProps {
   /** Connected dataset manifest (spec §6): entities render in the Data Explorer. */
   manifest: import("@/app/lib/manifest-connect").ManifestView | null;
   activeEntityName: string | null;
+  loadingEntityName: string | null;
   onSelectManifestEntity: (name: string) => void;
   onRefreshSchema: (() => void) | undefined;
   isRefreshingSchema: boolean;
@@ -124,7 +125,9 @@ export function PageChrome(props: PageChromeProps) {
             warehouse.isConnected
               ? `${warehouse.warehouseType ?? "Warehouse"} · ${warehouse.tableCount} tables`
               : props.manifest
-                ? `${props.manifest.title ?? "Dataset manifest"} · ${props.manifest.entities.length} entities`
+                ? props.loadingEntityName
+                  ? `${props.manifest.title ?? "Dataset manifest"} · reading ${props.loadingEntityName}…`
+                  : `${props.manifest.title ?? "Dataset manifest"} · ${props.manifest.entities.length} entities`
                 : (schema?.filename ?? "data")
           }
           schema={railSchema}
@@ -146,12 +149,16 @@ export function PageChrome(props: PageChromeProps) {
                 // hint (~) until then, pending/failed status otherwise.
                 props.manifest.entities.map((e) => ({
                   name: e.name,
+                  // The in-flight entity says so — a click on a pending entity
+                  // must visibly DO something (author review #2).
                   rows:
-                    e.status === "failed"
-                      ? "failed"
-                      : e.rowCount !== undefined
-                        ? `${e.rowCountIsExact ? "" : "~"}${e.rowCount.toLocaleString()}`
-                        : "not read yet",
+                    e.name === props.loadingEntityName
+                      ? "loading…"
+                      : e.status === "failed"
+                        ? "failed"
+                        : e.rowCount !== undefined
+                          ? `${e.rowCountIsExact ? "" : "~"}${e.rowCount.toLocaleString()}`
+                          : "not read yet",
                 }))
               : warehouse.tables.map((t) => ({
                   name: t.name,

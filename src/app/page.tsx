@@ -437,6 +437,7 @@ export default function Home() {
         excelMeta={excelMeta}
         manifest={source.manifest}
         activeEntityName={source.activeEntityName}
+        loadingEntityName={source.loadingEntityName}
         onSelectManifestEntity={source.selectManifestEntity}
         isWorkbookMode={isWorkbookMode}
         onRefreshSchema={onRefreshSchema}
