@@ -107,7 +107,18 @@ export function middleware(request: NextRequest) {
       pathname.startsWith("/api/providers") ||
       pathname.startsWith("/api/ollama/");
 
-    if (!isInternalPolling) {
+    // The wasm range endpoint is CAPABILITY-metered, not rate-metered (D36):
+    // DuckDB in the worker reads parquet by synchronous XHR, so a single scan is
+    // legitimately a burst of hundreds of small range GETs — any request-rate cap
+    // sized for human traffic breaks it by design (observed live: mid-scan 429s
+    // crashed the read AND flooded the shared bucket so unrelated calls 429'd).
+    // The route's own guards bound a runaway client more meaningfully than a
+    // request counter ever did here: an unguessable UUID token (404 without it)
+    // and a per-token BYTE budget charged before bytes are served. The loopback
+    // origin gate above still applies — this exempts only the rate cap.
+    const isCapabilityMetered = pathname.startsWith("/api/wasm-range/");
+
+    if (!isInternalPolling && !isCapabilityMetered) {
       // All /api traffic is loopback (the default-deny origin guard above 403s
       // anything else), so there is no fronting proxy and X-Forwarded-For is
       // attacker-controlled: keying on it let a local client rotate the header

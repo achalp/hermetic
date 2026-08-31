@@ -105,4 +105,45 @@ describe("middleware DNS-rebinding guard", () => {
     // shares one, so the 61st trips the 60/min cap.
     expect(last!.status).toBe(429);
   });
+
+  it("exempts the wasm range endpoint — capability-metered, not rate-metered (D36)", () => {
+    // DuckDB in the worker reads parquet by SYNCHRONOUS XHR: one scan is
+    // legitimately hundreds of small range GETs. Live, the shared bucket 429'd
+    // mid-scan — crashing the read AND starving unrelated calls. The route's own
+    // unguessable token + per-token BYTE budget bound a runaway client far more
+    // meaningfully than a request counter.
+    __resetRateLimitForTests();
+    let last: ReturnType<typeof middleware> | undefined;
+    for (let i = 0; i <= 200; i++)
+      last = middleware(
+        req("/api/wasm-range/6f000000-0000-4000-8000-000000000001", {
+          origin: "http://localhost:3000",
+        })
+      );
+    expect(last!.status).not.toBe(429);
+  });
+
+  it("the exemption does NOT bypass the local-origin gate", () => {
+    // Only the RATE cap is exempted; a cross-origin request still 403s.
+    const res = middleware(
+      req("/api/wasm-range/6f000000-0000-4000-8000-000000000001", {
+        origin: "https://evil.example.com",
+      })
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("a range-read burst does not starve OTHER api routes' budget", () => {
+    // The flood must not land in the shared bucket at all — after 200 range
+    // reads, an ordinary API call still has its full budget.
+    __resetRateLimitForTests();
+    for (let i = 0; i <= 200; i++)
+      middleware(
+        req("/api/wasm-range/6f000000-0000-4000-8000-000000000001", {
+          origin: "http://localhost:3000",
+        })
+      );
+    const res = middleware(req("/api/query", { origin: "http://localhost:3000" }));
+    expect(res.status).not.toBe(429);
+  });
 });
