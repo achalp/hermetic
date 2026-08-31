@@ -37,6 +37,10 @@ export interface PageChromeProps {
   schema: ReturnType<typeof useCSVUpload>["schema"];
   excelMeta: ReturnType<typeof useCSVUpload>["excelMeta"];
   isWorkbookMode: boolean;
+  /** Connected dataset manifest (spec §6): entities render in the Data Explorer. */
+  manifest: import("@/app/lib/manifest-connect").ManifestView | null;
+  activeEntityName: string | null;
+  onSelectManifestEntity: (name: string) => void;
   onRefreshSchema: (() => void) | undefined;
   isRefreshingSchema: boolean;
   // Artifacts panel
@@ -107,11 +111,21 @@ export function PageChrome(props: PageChromeProps) {
         onToggleFullscreen={panels.toggleRailFullscreen}
       >
         <DataRailContent
-          sourceType={warehouse.isConnected ? "warehouse" : props.isWorkbookMode ? "excel" : "csv"}
+          sourceType={
+            warehouse.isConnected
+              ? "warehouse"
+              : props.manifest
+                ? "manifest"
+                : props.isWorkbookMode
+                  ? "excel"
+                  : "csv"
+          }
           sourceName={
             warehouse.isConnected
               ? `${warehouse.warehouseType ?? "Warehouse"} · ${warehouse.tableCount} tables`
-              : (schema?.filename ?? "data")
+              : props.manifest
+                ? `${props.manifest.title ?? "Dataset manifest"} · ${props.manifest.entities.length} entities`
+                : (schema?.filename ?? "data")
           }
           schema={railSchema}
           allSchema={railAllSchema}
@@ -126,10 +140,28 @@ export function PageChrome(props: PageChromeProps) {
             from: `${r.sourceSheet}.${r.sourceColumn}`,
             to: `${r.targetSheet}.${r.targetColumn}`,
           }))}
-          tables={warehouse.tables.map((t) => ({
-            name: t.name,
-            rows: t.row_count_estimate?.toLocaleString() ?? "–",
-          }))}
+          tables={
+            props.manifest && !warehouse.isConnected
+              ? // Entity list: exact rows once introspected, the manifest's own
+                // hint (~) until then, pending/failed status otherwise.
+                props.manifest.entities.map((e) => ({
+                  name: e.name,
+                  rows:
+                    e.status === "failed"
+                      ? "failed"
+                      : e.rowCount !== undefined
+                        ? `${e.rowCountIsExact ? "" : "~"}${e.rowCount.toLocaleString()}`
+                        : "not read yet",
+                }))
+              : warehouse.tables.map((t) => ({
+                  name: t.name,
+                  rows: t.row_count_estimate?.toLocaleString() ?? "–",
+                }))
+          }
+          activeItem={props.activeEntityName ?? undefined}
+          onSheetSelect={
+            props.manifest && !warehouse.isConnected ? props.onSelectManifestEntity : undefined
+          }
           warehouseSchemas={warehouse.tableSchemas}
           warehouseId={warehouse.warehouseId}
           fullscreen={panels.railFullscreen}

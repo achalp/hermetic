@@ -18,7 +18,7 @@ interface WarehouseTableSchemaInfo {
 }
 
 interface DataRailContentProps {
-  sourceType: "csv" | "excel" | "warehouse";
+  sourceType: "csv" | "excel" | "warehouse" | "manifest";
   sourceName: string;
   schema?: { name: string; type: string; sample: string }[];
   allSchema?: { name: string; type: string; sample: string }[];
@@ -49,6 +49,7 @@ const sourceIcons: Record<DataRailContentProps["sourceType"], string> = {
   csv: "\uD83D\uDCC4",
   excel: "\uD83D\uDCCA",
   warehouse: "\uD83D\uDC18",
+  manifest: "\uD83D\uDDC2\uFE0F",
 };
 
 function normalizeType(t: string): "text" | "number" | "date" {
@@ -151,9 +152,18 @@ export function DataRailContent({
   const displaySampleCols = sourceType === "warehouse" ? whSampleData?.columns : sampleColumns;
   const displaySampleRows = sourceType === "warehouse" ? whSampleData?.rows : sampleRows;
 
-  const isWarehouseWithTables = sourceType === "warehouse" && tables && tables.length > 0;
+  // A MANIFEST source reuses the warehouse LAYOUT (entity list + detail) but the
+  // csv DATA path: the active entity IS the page's active source, so its schema/
+  // profile/sample arrive through the ordinary csv props — no second data path,
+  // no sample fetching. Selection is therefore EXTERNAL (activeItem/onSheetSelect):
+  // clicking an entity swaps the active source upstream, which re-feeds the props.
+  const isManifestWithEntities = sourceType === "manifest" && tables && tables.length > 0;
+  const isWarehouseWithTables =
+    (sourceType === "warehouse" || sourceType === "manifest") && tables && tables.length > 0;
   const isVerticalSplit = isWarehouseWithTables && fullscreen;
   const isHorizontalSplit = isWarehouseWithTables && !fullscreen;
+  const listActive = isManifestWithEntities ? (activeItem ?? "") : activeTable;
+  const listSelect = isManifestWithEntities ? (onSheetSelect ?? (() => {})) : setActiveTable;
 
   // Draggable divider for vertical split (fullscreen mode)
   const [leftWidth, setLeftWidth] = useState(220);
@@ -257,7 +267,7 @@ export function DataRailContent({
         /* Fullscreen: vertical split with draggable divider */
         <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
           <div style={{ width: leftWidth, flexShrink: 0, overflowY: "auto" }}>
-            <TableList tables={tables} active={activeTable} onSelect={setActiveTable} />
+            <TableList tables={tables} active={listActive} onSelect={listSelect} />
           </div>
           {/* Draggable divider */}
           <div
@@ -289,7 +299,7 @@ export function DataRailContent({
               borderBottom: "1px solid var(--color-surface-dark-2)",
             }}
           >
-            <TableList tables={tables} active={activeTable} onSelect={setActiveTable} />
+            <TableList tables={tables} active={listActive} onSelect={listSelect} />
           </div>
           <div style={{ flex: 2, minHeight: 0, overflowY: "auto" }}>{detailContent}</div>
         </div>

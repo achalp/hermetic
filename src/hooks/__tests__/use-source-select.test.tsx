@@ -10,17 +10,25 @@ vi.mock("@/app/lib/api", () => ({
   uploadFile: vi.fn(),
 }));
 
+vi.mock("@/app/lib/manifest-connect", () => ({
+  connectManifest: vi.fn(),
+  ensureManifestEntity: vi.fn(),
+}));
+
 import {
   extractLocalSchema,
   extractRemoteParquetSchema,
   fetchStaticAsset,
   uploadFile,
 } from "@/app/lib/api";
+import { connectManifest, ensureManifestEntity } from "@/app/lib/manifest-connect";
 
 const mLocal = extractLocalSchema as ReturnType<typeof vi.fn>;
 const mRemote = extractRemoteParquetSchema as ReturnType<typeof vi.fn>;
 const mStatic = fetchStaticAsset as ReturnType<typeof vi.fn>;
 const mUpload = uploadFile as ReturnType<typeof vi.fn>;
+const mConnectManifest = connectManifest as ReturnType<typeof vi.fn>;
+const mEnsureEntity = ensureManifestEntity as ReturnType<typeof vi.fn>;
 
 const schema = { csv_id: "c", filename: "f.csv", row_count: 1, columns: [], sample_rows: [] };
 
@@ -36,6 +44,8 @@ beforeEach(() => {
   mRemote.mockReset();
   mStatic.mockReset();
   mUpload.mockReset();
+  mConnectManifest.mockReset();
+  mEnsureEntity.mockReset();
 });
 
 afterEach(() => cleanup());
@@ -136,5 +146,111 @@ describe("useSourceSelect", () => {
     act(() => result.current.resetSourceSelect());
     expect(result.current.showLocalBrowser).toBe(false);
     expect(result.current.hasRemoteSource).toBe(false);
+  });
+});
+
+describe("useSourceSelect — dataset manifests in the Data Explorer (spec §6 revised)", () => {
+  const VIEW = {
+    manifestId: "m1",
+    manifestUrl: "https://h/data/manifest.json",
+    format: "files-array",
+    title: "Housing hub",
+    excluded: [],
+    entities: [
+      {
+        name: "housing",
+        url: "https://h/data/housing.parquet",
+        status: "pending",
+        rowCountIsExact: false,
+      },
+      {
+        name: "population",
+        url: "https://h/data/population.parquet",
+        status: "ready",
+        csvId: "c-pop",
+        rowCount: 5,
+        rowCountIsExact: true,
+      },
+    ],
+  };
+  const detail = (name: string, csvId: string) => ({
+    name,
+    status: "ready",
+    url: `https://h/data/${name}.parquet`,
+    csvId,
+    schema: {
+      csv_id: csvId,
+      filename: name,
+      row_count: 7,
+      columns: [{ name: "x" }],
+      sample_rows: [],
+    },
+  });
+
+  it("a .json URL connects as a MANIFEST and auto-selects the first READY entity", async () => {
+    mConnectManifest.mockResolvedValue(VIEW);
+    mEnsureEntity.mockResolvedValue(detail("population", "c-pop"));
+    const { result, handleUpload } = setup();
+    await act(() => result.current.handleRemoteFileSelect("https://h/data/manifest.json"));
+
+    // The parquet path was never taken; the manifest one was.
+    expect(mRemote).not.toHaveBeenCalled();
+    expect(result.current.manifest).toEqual(VIEW);
+    // First READY entity preferred over the first pending one (no extraction wait).
+    expect(mEnsureEntity).toHaveBeenCalledWith(VIEW, "population", undefined);
+    expect(result.current.activeEntityName).toBe("population");
+    // ...and it became the ACTIVE SOURCE, which is what feeds the explorer panes.
+    expect(handleUpload).toHaveBeenCalledWith("c-pop", expect.objectContaining({ row_count: 7 }));
+  });
+
+  it("selecting a pending entity lazily extracts it, updates the list, swaps the source", async () => {
+    mConnectManifest.mockResolvedValue(VIEW);
+    mEnsureEntity.mockResolvedValueOnce(detail("population", "c-pop"));
+    const { result, handleUpload } = setup();
+    await act(() => result.current.handleRemoteFileSelect("https://h/data/manifest.json"));
+
+    mEnsureEntity.mockResolvedValueOnce(detail("housing", "c-house"));
+    await act(() => result.current.selectManifestEntity("housing"));
+
+    expect(result.current.activeEntityName).toBe("housing");
+    expect(handleUpload).toHaveBeenLastCalledWith("c-house", expect.anything());
+    // The list reflects the extraction without a refetch: exact rows, ready.
+    const housing = result.current.manifest!.entities.find((e) => e.name === "housing")!;
+    expect(housing).toMatchObject({ status: "ready", rowCount: 7, rowCountIsExact: true });
+  });
+
+  it("re-selecting the ACTIVE entity is a no-op (no spinner, no re-extract)", async () => {
+    mConnectManifest.mockResolvedValue(VIEW);
+    mEnsureEntity.mockResolvedValue(detail("population", "c-pop"));
+    const { result } = setup();
+    await act(() => result.current.handleRemoteFileSelect("https://h/data/manifest.json"));
+    mEnsureEntity.mockClear();
+    await act(() => result.current.selectManifestEntity("population"));
+    expect(mEnsureEntity).not.toHaveBeenCalled();
+  });
+
+  it("a failed entity selection surfaces the error and keeps the previous source", async () => {
+    mConnectManifest.mockResolvedValue(VIEW);
+    mEnsureEntity.mockResolvedValueOnce(detail("population", "c-pop"));
+    const { result, handleUpload } = setup();
+    await act(() => result.current.handleRemoteFileSelect("https://h/data/manifest.json"));
+    handleUpload.mockClear();
+
+    mEnsureEntity.mockRejectedValueOnce(new Error("404 from the source"));
+    await act(() => result.current.selectManifestEntity("housing"));
+
+    expect(result.current.sourceError).toContain("404");
+    expect(handleUpload).not.toHaveBeenCalled();
+    expect(result.current.activeEntityName).toBe("population"); // unchanged
+  });
+
+  it("resetSourceSelect clears the manifest state", async () => {
+    mConnectManifest.mockResolvedValue(VIEW);
+    mEnsureEntity.mockResolvedValue(detail("population", "c-pop"));
+    const { result } = setup();
+    await act(() => result.current.handleRemoteFileSelect("https://h/data/manifest.json"));
+    act(() => result.current.resetSourceSelect());
+    expect(result.current.manifest).toBeNull();
+    expect(result.current.activeEntityName).toBeNull();
   });
 });

@@ -1366,3 +1366,20 @@ force-full + rate cap + toString), each shipped behind unit tests that could not
 see it. The e2e gap — a browser-driven worker extraction against the real route
 with a local parquet fixture — is now the obvious missing test; the repro script
 is its prototype and should graduate into the gated e2e suite.
+
+### D37 — The live repro graduated into a gated e2e (author directive).
+
+`e2e/wasm-range-extraction.spec.ts`: the PRODUCTION worker source under the
+production CSP, the real shipped duckdb bundle + extension repo, the D27 script
+builder's actual output, and a fixture parquet carrying the exact shapes that
+broke live (quoted strings, BIGINT, DECIMAL, zero-padded codes). The fixture
+server accepts/rejects ranges through the range route's OWN exported `parseRange`
+— the contract itself, not a mock's opinion of it, which was the D31 lesson.
+
+A protocol ledger records every request the worker makes; the assertions pin each
+regression by failure mode: any rangeless GET or 416 = the D36 filesystem config
+regressed; the quoted label surviving into the JSON profile = the serializer
+holds; ranged 206s > 2 = it actually read by ranges. Mutation-verified: deleting
+`db.open(config)` from the boot fails the spec with the exact live signature
+(the _setThrew crash); restored, it passes in ~7 s. Skips gracefully where the
+pyodide/duckdb assets are absent (CI's e2e job), same pattern as the other gates.
