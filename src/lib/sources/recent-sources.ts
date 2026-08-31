@@ -25,7 +25,7 @@ import {
  * Warehouses aren't stored here — they already persist in .warehouse-connections
  * .json; the UI merges the two for one unified "Recent" list.
  */
-export type RecentKind = "upload" | "local-file" | "local-folder" | "remote-parquet";
+export type RecentKind = "upload" | "local-file" | "local-folder" | "remote-parquet" | "manifest";
 
 export interface RecentSource {
   id: string;
@@ -36,8 +36,8 @@ export interface RecentSource {
   subtitle: string;
   rows?: number;
   /** Re-open payloads (per kind). */
-  url?: string; // remote-parquet
-  creds?: RemoteCreds; // remote-parquet (private buckets — persisted, like warehouses)
+  url?: string; // remote-parquet / manifest
+  creds?: RemoteCreds; // remote-parquet + manifest (private buckets — persisted, like warehouses)
   path?: string; // local-file/folder, and the managed copy for an upload
   isHivePartitioned?: boolean;
   /** upload only: the managed byte copy under ~/.hermetic/sources (== path). */
@@ -62,7 +62,7 @@ function dedupKey(kind: RecentKind, target: string): string {
 
 /** The identity used to dedup a recording (same source → one bumped entry). */
 function keyOf(s: Pick<RecentSource, "kind" | "url" | "path" | "name">): string {
-  if (s.kind === "remote-parquet") return dedupKey(s.kind, s.url ?? "");
+  if (s.kind === "remote-parquet" || s.kind === "manifest") return dedupKey(s.kind, s.url ?? "");
   if (s.kind === "upload") return dedupKey(s.kind, s.name); // by filename
   return dedupKey(s.kind, s.path ?? "");
 }
@@ -75,7 +75,7 @@ function keyOf(s: Pick<RecentSource, "kind" | "url" | "path" | "name">): string 
  * never probed — existence there means a network call.
  */
 function isOpenable(e: RecentSource): boolean {
-  if (e.kind === "remote-parquet") return true;
+  if (e.kind === "remote-parquet" || e.kind === "manifest") return true;
   return !e.path || existsSync(e.path);
 }
 
@@ -116,7 +116,7 @@ function recordToCreds(rec: Record<string, string>): RemoteCreds {
  *  with `creds` stripped. On keychain-write failure the creds are kept in the
  *  file (losing a credential is worse than persisting it) and it is logged. */
 function scrubCreds(entry: RecentSource): RecentSource {
-  if (entry.kind !== "remote-parquet" || !entry.creds) return entry;
+  if ((entry.kind !== "remote-parquet" && entry.kind !== "manifest") || !entry.creds) return entry;
   try {
     setRemoteSourceSecrets(entry.id, credsToRecord(entry.creds));
     return { ...entry, creds: undefined };
@@ -133,7 +133,7 @@ function scrubCreds(entry: RecentSource): RecentSource {
  *  A file that still carries plaintext creds (legacy, pre-migration) is kept
  *  as-is rather than overwritten with a possibly-empty keychain blob. */
 function withCreds(entry: RecentSource): RecentSource {
-  if (entry.kind !== "remote-parquet" || entry.creds) return entry;
+  if ((entry.kind !== "remote-parquet" && entry.kind !== "manifest") || entry.creds) return entry;
   const rec = getRemoteSourceSecrets(entry.id);
   return rec ? { ...entry, creds: recordToCreds(rec) } : entry;
 }
@@ -155,6 +155,24 @@ function serializeWrite<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
+/** Display host for a manifest URL ("named by the host" — author decision). */
+export function manifestHostName(url: string): string {
+  try {
+    return new URL(url).host || url;
+  } catch {
+    // s3://bucket/… → bucket; last resort: the raw string.
+    const m = /^[a-z0-9+.-]+:\/\/([^/]+)/i.exec(url);
+    return m?.[1] ?? url;
+  }
+}
+
+/** Is this recorded url a MANIFEST (P1 recorded manifests under remote-parquet)? */
+function isManifestEntryUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  const path = url.split(/[?#]/, 1)[0]!;
+  return /\.(json|jsonld)$/i.test(path);
+}
+
 export async function loadRecentSources(): Promise<RecentSource[]> {
   let list: RecentSource[] | undefined;
   try {
@@ -169,9 +187,20 @@ export async function loadRecentSources(): Promise<RecentSource[]> {
     return [];
   }
   if (!list) return [];
+  // Migration: P1 recorded manifest sources under kind "remote-parquet" (noted
+  // as a shortcut in the spec's build log). Normalize them on read — proper
+  // kind, host-named — so old and new entries dedupe as ONE source.
+  let migrated = false;
+  list = list.map((e) => {
+    if (e.kind !== "remote-parquet" || !isManifestEntryUrl(e.url)) return e;
+    migrated = true;
+    const rest = { ...e };
+    delete rest.rows; // the old entry's entity count would misread as "N rows"
+    return { ...rest, kind: "manifest" as const, name: manifestHostName(e.url!) };
+  });
   const live = list.filter(isOpenable);
-  if (live.length !== list.length) {
-    // Best-effort persist of the prune so the dead rows don't reappear.
+  if (migrated || live.length !== list.length) {
+    // Best-effort persist (prune + migration) so the old rows don't reappear.
     await write(live).catch(() => {});
   }
   return live.map(withCreds).sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt));
@@ -196,7 +225,8 @@ async function write(list: RecentSource[]): Promise<void> {
 /** Best-effort delete of an upload's managed byte copy AND any keychain creds. */
 async function deleteManaged(entry: RecentSource): Promise<void> {
   if (entry.kind === "upload" && entry.path) await unlink(entry.path).catch(() => {});
-  if (entry.kind === "remote-parquet") deleteRemoteSourceSecrets(entry.id);
+  if (entry.kind === "remote-parquet" || entry.kind === "manifest")
+    deleteRemoteSourceSecrets(entry.id);
 }
 
 export interface RecordInput {

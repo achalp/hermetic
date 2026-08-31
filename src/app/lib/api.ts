@@ -724,7 +724,7 @@ export async function getSchemaByCsvId(
 
 export interface RecentSourceInfo {
   id: string;
-  kind: "upload" | "local-file" | "local-folder" | "remote-parquet";
+  kind: "upload" | "local-file" | "local-folder" | "remote-parquet" | "manifest";
   name: string;
   subtitle: string;
   rows?: number;

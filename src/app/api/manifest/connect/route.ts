@@ -10,7 +10,7 @@ import { extractRemoteParquetSchemaBatch } from "@/lib/parquet/schema-extractor"
 import { readSchemaCache, writeSchemaCache } from "@/lib/schema-cache";
 import { storeRemoteParquetRef } from "@/lib/csv/storage";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
-import { recordRecentSource } from "@/lib/sources/recent-sources";
+import { recordRecentSource, manifestHostName } from "@/lib/sources/recent-sources";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
 import { apiError } from "@/app/lib/api-error";
 
@@ -53,14 +53,14 @@ export async function POST(request: Request) {
       }
     );
 
-    // Recent-sources entry under the EXISTING remote-parquet kind (P1 shortcut,
-    // noted in the build log): re-open pastes the manifest URL back through the
-    // dialog, whose .json detection routes it here again.
+    // Recent-sources: first-class manifest kind, NAMED BY THE HOST (author
+    // decision) — the url re-opens through the dialog's .json detection. No
+    // `rows`: the UI renders that field as "N rows", which would misread the
+    // entity count.
     recordRecentSource({
-      kind: "remote-parquet",
-      name: record.manifest.title ?? "Dataset manifest",
+      kind: "manifest",
+      name: manifestHostName(url),
       subtitle: url,
-      rows: record.entities.size,
       url,
       creds,
     }).catch(() => {});

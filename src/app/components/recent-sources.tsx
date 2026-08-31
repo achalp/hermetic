@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 export type RecentItemKind =
-  "upload" | "local-file" | "local-folder" | "remote-parquet" | "warehouse";
+  "upload" | "local-file" | "local-folder" | "remote-parquet" | "manifest" | "warehouse";
 
 export interface RecentItem {
   id: string;
@@ -29,7 +29,12 @@ interface RecentSourcesProps {
 }
 
 /** Kinds that can be re-read from source (schema refresh makes sense). */
-const REFRESHABLE = new Set<RecentItemKind>(["remote-parquet", "local-file", "local-folder"]);
+const REFRESHABLE = new Set<RecentItemKind>([
+  "remote-parquet",
+  "manifest",
+  "local-file",
+  "local-folder",
+]);
 
 /** Middle-ellipsis so both ends of a long path/URL stay readable. */
 function middle(s: string, max = 52): string {
@@ -241,6 +246,16 @@ function IconButton({
 function KindIcon({ kind, color }: { kind: RecentItemKind; color?: string }) {
   const c = "var(--color-t-secondary)";
   const stroke = { fill: "none", stroke: c, strokeWidth: 1.8 } as const;
+  if (kind === "manifest") {
+    // A catalog: three stacked layers.
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.8} width={16} height={16}>
+        <path d="M12 3l9 4.5-9 4.5-9-4.5L12 3z" />
+        <path d="M3 12l9 4.5 9-4.5" />
+        <path d="M3 16.5L12 21l9-4.5" />
+      </svg>
+    );
+  }
   if (kind === "remote-parquet") {
     return (
       <svg width="18" height="18" viewBox="0 0 24 24" {...stroke} aria-hidden="true">

@@ -21,6 +21,7 @@ const KIND_LABEL: Record<RecentSourceInfo["kind"], string> = {
   "local-file": "local file",
   "local-folder": "folder",
   "remote-parquet": "cloud",
+  manifest: "manifest",
 };
 
 /**
