@@ -96,6 +96,34 @@ describe("buildUpdaterManifest", () => {
     ).toThrow(/strand/);
   });
 
+  it("THROWS when the tag and the BUILT APP version disagree (the update loop)", () => {
+    // The app compares the manifest version against its own (from
+    // tauri.conf.json5). Tag 0.2.0 + app built as 0.1.0 = the update installs,
+    // still reports 0.1.0, and re-downloads itself on every launch forever.
+    // Nothing else catches this: build, signature and install all succeed.
+    expect(() =>
+      buildUpdaterManifest({
+        ...base,
+        appVersion: "0.1.0",
+        bundles: [{ fileName: "x.AppImage", signature: SIG }],
+      })
+    ).toThrow(/Version mismatch: tag says 0\.2\.0, the app is built as 0\.1\.0/);
+  });
+
+  it("accepts a matching app version, and stays optional for callers without one", () => {
+    const matched = buildUpdaterManifest({
+      ...base,
+      appVersion: "0.2.0",
+      bundles: [{ fileName: "x.AppImage", signature: SIG }],
+    });
+    expect(matched.version).toBe("0.2.0");
+    // Omitted → no check (the pure builder stays usable without a config read).
+    expect(
+      buildUpdaterManifest({ ...base, bundles: [{ fileName: "x.AppImage", signature: SIG }] })
+        .version
+    ).toBe("0.2.0");
+  });
+
   it("accepts an explicit platform for a filename the inference cannot classify", () => {
     const m = buildUpdaterManifest({
       ...base,

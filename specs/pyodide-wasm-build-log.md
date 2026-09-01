@@ -1537,3 +1537,16 @@ installed apps poll. The decisions worth keeping:
   that never uploaded (the exact bug the .mcpb ordering fixed).
 - Matrix is Linux-only today; macOS needs Developer ID + notarization and
   Windows an NSIS signing cert before those rows are added.
+
+**D42 addendum — the update loop, closed in code.** Writing the release runbook
+surfaced a live defect: `scripts/release.sh` bumped ONLY `package.json`, while
+Tauri compiles `src-tauri/tauri.conf.json5`'s version into the binary. Tag
+`v0.2.0` with the config left at `0.1.0` publishes a manifest advertising 0.2.0;
+the app installs it, still reports 0.1.0, sees 0.2.0 on offer again, and
+re-downloads the identical update EVERY LAUNCH, forever. Nothing upstream
+catches it — build, signature, and install all succeed. Two fixes: release.sh
+now bumps both files in one commit (regex-edited, not JSON5 round-tripped,
+which would strip the §7 rationale comments), and buildUpdaterManifest takes
+the built app's version and FAILS the release job on mismatch. Verified both:
+the bump preserves all 70 comment lines, and a deliberate tag/config mismatch
+aborts with the explanation. Runbook: ops/RELEASE.md.
