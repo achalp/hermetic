@@ -212,6 +212,15 @@ async function main() {
   ]) {
     await rm(join(OUT, junk), { recursive: true, force: true });
   }
+  // 1c-pre) Prune FOREIGN-NATIVE artifacts. pnpm installs the *-musl / other-
+  // arch sibling prebuilds (installers predating optionalDependencies' `libc`
+  // field take them all), and ONE musl .node in the tree is fatal to AppImage
+  // bundling: linuxdeploy ldd's every ELF it meets and aborts on the musl
+  // loader — the bare "failed to run linuxdeploy" this build died with. None
+  // of these can ever load under this platform's glibc, so removal is
+  // behavior-free (the napi loaders probe gnu first and never fall through).
+  await pruneForeignNative(join(OUT, "node_modules"));
+
   // 1c) REPAIR incomplete externalized packages. Turbopack's standalone tracer copies
   // an external package's package.json but NOT its files (pg, rimraf, @napi-rs/keyring,
   // snowflake-sdk, …) — so the server crashes at runtime ("Cannot find module
@@ -303,3 +312,43 @@ main().catch((e) => {
   console.error(`[sidecar] FAILED: ${e?.stack || e}`);
   process.exit(1);
 });
+
+/**
+ * Remove native prebuilds that cannot run on THIS build machine (foreign libc
+ * or CPU): package dirs and loose *.node files whose names declare musl or a
+ * different arch/platform. Only runs for the linux-x64 glibc host — the one
+ * place linuxdeploy walks the tree; cross-platform release builds assemble on
+ * their own hosts.
+ */
+async function pruneForeignNative(nodeModules) {
+  if (process.platform !== "linux" || process.arch !== "x64") return;
+  const FOREIGN = /musl|linux-arm64|aarch64|darwin|win32|windows/i;
+  let pruned = 0;
+  async function walk(dir) {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) {
+        // A variant PACKAGE dir (…/keyring-linux-x64-musl, @img/sharp-linuxmusl-x64).
+        if (FOREIGN.test(e.name) && /(^|[/\\])node_modules[/\\]/.test(full + "/")) {
+          await rm(full, { recursive: true, force: true });
+          pruned++;
+          continue;
+        }
+        await walk(full);
+      } else if (e.name.endsWith(".node") && FOREIGN.test(e.name)) {
+        // A loose foreign prebuild inside an otherwise-native package
+        // (snowflake-sdk ships every arch under dist/lib/minicore/binaries).
+        await rm(full, { force: true });
+        pruned++;
+      }
+    }
+  }
+  await walk(nodeModules);
+  log(`pruned ${pruned} foreign-native artifact(s) (musl/other-arch)`);
+}
