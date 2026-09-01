@@ -14,6 +14,11 @@
 //!     `core:default` + window basics; `withGlobalTauri:false` removes
 //!     `window.__TAURI__`. The sidecar is spawned from RUST via `std::process`
 //!     (NOT a shell plugin), so no spawn/exec command is ever exposed to the page.
+//!   - AUTO-UPDATE (build log D42): `tauri-plugin-updater` is the ONE plugin in
+//!     this crate. It is registered here but granted NO capability, so its
+//!     commands are unreachable from webview JS; the check + signature-verified
+//!     install run in THIS (trusted) context. Updates are minisign-verified
+//!     against the pubkey in tauri.conf.json5 before anything is written.
 //!   - §7 #2: the execution worker gets its OWN stricter CSP at runtime (D8=self:
 //!     `script-src 'self' 'wasm-unsafe-eval' blob:; connect-src 'self'`), served on
 //!     the /api/wasm-worker response — NOT the app CSP here.
@@ -29,6 +34,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_updater::UpdaterExt;
 
 /// The spawned sidecar, kept so we can kill it when the app exits.
 struct Sidecar(Mutex<Option<Child>>);
@@ -114,6 +120,11 @@ pub fn run() {
     tauri::Builder::default()
         // No `.invoke_handler(...)` on purpose (§7 #1): a custom command would be
         // reachable from untrusted webview JS. The sidecar is spawned from Rust below.
+        //
+        // The updater plugin is registered WITHOUT a matching capability grant, so
+        // its commands stay unreachable from the page — the Rust-side check below
+        // is the only caller (D42).
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Sidecar(Mutex::new(None)))
         .setup(|app| {
             // DEV (`tauri dev`, debug build): use the hot-reload Next dev server (devUrl)
@@ -147,6 +158,8 @@ pub fn run() {
                 .inner_size(1280.0, 832.0)
                 .min_inner_size(800.0, 600.0)
                 .build()?;
+
+            spawn_update_check(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -164,4 +177,46 @@ pub fn run() {
 /// Extract the port from a `http://127.0.0.1:PORT` base (built by spawn_sidecar).
 fn url_port(base: &str) -> u16 {
     base.rsplit(':').next().and_then(|p| p.parse().ok()).unwrap_or(0)
+}
+
+/// Check for a signed update in the background and install it for the NEXT launch.
+///
+/// Deliberate shape (D42):
+///   - runs in the Rust core, never via an IPC command the page could call;
+///   - DEBUG builds and `HERMETIC_NO_UPDATE_CHECK=1` skip it entirely, so
+///     `tauri dev` and CI never phone home;
+///   - the endpoint is the GitHub *latest* release, so prereleases are invisible
+///     to installed apps;
+///   - every failure is non-fatal and logged — a network blip, an offline user,
+///     or a rate-limited endpoint must never block app start;
+///   - the update is applied on the next launch rather than restarting the user
+///     mid-session (Tauri writes the new AppImage/installer in place).
+fn spawn_update_check(handle: tauri::AppHandle) {
+    if cfg!(debug_assertions) || std::env::var("HERMETIC_NO_UPDATE_CHECK").is_ok() {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        let updater = match handle.updater() {
+            Ok(u) => u,
+            Err(e) => {
+                eprintln!("[hermetic] updater unavailable: {e}");
+                return;
+            }
+        };
+        match updater.check().await {
+            Ok(Some(update)) => {
+                let version = update.version.clone();
+                eprintln!("[hermetic] update {version} available — downloading");
+                // Signature verification against the configured pubkey happens
+                // INSIDE this call; an unsigned or mis-signed bundle errors here
+                // and nothing is written.
+                match update.download_and_install(|_, _| {}, || {}).await {
+                    Ok(()) => eprintln!("[hermetic] update {version} installed — restart to apply"),
+                    Err(e) => eprintln!("[hermetic] update {version} failed to install: {e}"),
+                }
+            }
+            Ok(None) => {}
+            Err(e) => eprintln!("[hermetic] update check failed: {e}"),
+        }
+    });
 }

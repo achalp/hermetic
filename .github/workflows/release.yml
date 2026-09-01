@@ -153,3 +153,74 @@ jobs:
           gh attestation verify hermetic.mcpb --repo ${REPO}
           sha256sum -c hermetic.mcpb.sha256
           \`\`\`"
+
+  # Desktop bundles + the updater manifest (build log D42). Runs AFTER the
+  # release exists and uploads into it, because a packaged desktop build is far
+  # too slow to hold release creation. That is a deliberate departure from the
+  # .mcpb's atomic-attach rule, so the release NOTES never promise a desktop
+  # asset: a failure here leaves a release visibly WITHOUT bundles rather than
+  # one whose notes point at files that never uploaded.
+  #
+  # `latest.json` is what installed apps poll, so it is written LAST and only
+  # from bundles carrying a sibling .sig (build-updater-manifest.mts throws
+  # otherwise) — an unsigned or partial manifest breaks auto-update for
+  # everyone already on that platform.
+  desktop:
+    name: Desktop bundle (${{ matrix.platform }})
+    needs: [gate, release]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux first — the AppImage is the only self-updatable Linux artifact
+          # (deb/rpm update through the package manager). macOS needs Developer
+          # ID signing + notarization secrets, Windows an NSIS code-signing cert,
+          # before their rows can be added here.
+          - os: ubuntu-latest
+            platform: linux-x86_64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    permissions:
+      contents: write # upload bundles + latest.json onto the release
+      id-token: write # OIDC for build-provenance attestation
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install webkit/gtk dev headers (same set as ci.yml tauri-shell)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf file
+      - run: pnpm install --frozen-lockfile
+      # The same script a maintainer runs locally (start.sh option 1): builds the
+      # egress-fetch release bin, purges Tauri's copy-only resource staging, then
+      # assembles the sidecar (which prunes foreign-native prebuilds — one musl
+      # .node aborts linuxdeploy) and bundles.
+      - name: Build desktop bundles (signed)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: node scripts/build-desktop.mjs
+      - name: Build latest.json from the signed bundles
+        run: pnpm exec tsx scripts/build-updater-manifest.mts "$GITHUB_REF_NAME"
+      - name: Attest bundle build provenance
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        with:
+          subject-path: src-tauri/target/release/bundle/appimage/*.AppImage
+      - name: Upload bundles, then the manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          ASSETS=(src-tauri/target/release/bundle/appimage/*.AppImage*)
+          ASSETS+=(src-tauri/target/release/bundle/deb/*.deb src-tauri/target/release/bundle/rpm/*.rpm)
+          gh release upload "$GITHUB_REF_NAME" "${ASSETS[@]}" --clobber
+          # LAST: only now can an installed app discover this version, and every
+          # URL the manifest names is already uploaded.
+          gh release upload "$GITHUB_REF_NAME" latest.json --clobber
