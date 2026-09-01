@@ -80,5 +80,29 @@
     // `<resources>/sidecar/node server.js`. `cargo check` does not validate that the
     // dir exists (bundling does), so the shell still compiles pre-build.
     resources: { sidecar: "sidecar" },
+
+    // Emit the signed update artifacts (.sig files) alongside the bundles. The
+    // signing key is supplied by CI via TAURI_SIGNING_PRIVATE_KEY{,_PASSWORD};
+    // a LOCAL build without those env vars simply skips signing, so
+    // `pnpm desktop:build` keeps working on a dev machine with no key.
+    createUpdaterArtifacts: true,
+  },
+
+  plugins: {
+    // Auto-update (tag-driven releases publish latest.json + signed bundles).
+    //
+    // TRUST: `pubkey` is the minisign PUBLIC half of the release keypair
+    // (id 413EA66010356217). Tauri verifies every downloaded bundle against it
+    // BEFORE installing, so a compromised CDN/release asset cannot ship code —
+    // the private key never leaves the maintainer's keychain + CI secret.
+    //
+    // The endpoint is the GitHub "latest" release, which by definition EXCLUDES
+    // prereleases — so an `-rc` tag can exercise the whole pipeline without any
+    // installed app pulling it.
+    updater: {
+      pubkey: "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQxM0VBNjYwMTAzNTYyMTcKUldRWFlqVVFZS1krUVJVYkhLQmZFRkFUeTRDVmd0TUtvRFR3TVY4b2RHcGZMQ1g5aVA4a3o1VzQK",
+      endpoints: ["https://github.com/achalp/hermetic/releases/latest/download/latest.json"],
+      windows: { installMode: "passive" },
+    },
   },
 }

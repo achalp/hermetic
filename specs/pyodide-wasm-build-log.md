@@ -1494,3 +1494,46 @@ same-process reuse via an in-process counter, ERR mapping to the one-shot
 kinds, crash-restart, frame-safety refusals) plus a GATED cross-language
 handshake driving the REAL debug bin. Route protocol tests re-pointed at the
 persistent fetcher.
+
+### D42 — Auto-update: one plugin, zero new webview surface.
+
+Tag-driven releases now publish signed desktop bundles plus the `latest.json`
+installed apps poll. The decisions worth keeping:
+
+- **The plugin is admitted, the capability is not.** `Cargo.toml` documented
+  "no plugins on purpose — add ONLY behind a capability grant". The strictest
+  reading of that rule is what shipped: `tauri-plugin-updater` is registered in
+  the builder, but NO updater permission is added to `capabilities/default.json`,
+  so its commands are unreachable from webview JS. The check/download/install
+  runs in `spawn_update_check()` — the same trusted Rust context that already
+  spawns the sidecar. §7 #1 ("the IPC surface reachable from webview JS is
+  EMPTY of host-touching commands") holds unchanged.
+- **Signature verification is the trust anchor.** The minisign PUBLIC key
+  (id 413EA66010356217) is compiled into the app; Tauri verifies every
+  downloaded bundle against it before writing anything, so a compromised
+  release asset or CDN cannot ship code. The private half lives in the
+  maintainer's keychain + CI secrets and never touches the repo.
+- **Prereleases are invisible to installed apps** — the endpoint is the GitHub
+  _latest_ release, which excludes them by definition. An `-rc` tag therefore
+  exercises the entire pipeline (build → sign → manifest → upload) without any
+  installed copy pulling it.
+- **Checks never block start**: debug builds and `HERMETIC_NO_UPDATE_CHECK=1`
+  skip entirely; every failure path logs and returns. The update applies on the
+  NEXT launch rather than restarting a user mid-session.
+- **`latest.json` is code, not a heredoc** (`lib/release/updater-manifest.ts`,
+  9 tests). Its failure modes are all silent at build time and loud on a user's
+  machine, so the builder REFUSES to emit: an empty signature (signing silently
+  didn't run), two bundles claiming one platform (ambiguous pick), or an empty
+  platform set (strands every install). It also excludes .deb/.rpm — those
+  update through the package manager, and listing them would hand an app a
+  download it cannot apply. Only the AppImage is self-updatable on Linux.
+- **Upload ORDER is load-bearing**: bundles first, `latest.json` last. An app
+  can only discover a version once the manifest lands, and by then every URL it
+  names is already uploaded.
+- **The desktop job attaches AFTER release creation**, unlike the .mcpb's
+  atomic attach — a packaged build is too slow to hold creation. The trade is
+  made safe by keeping desktop artifacts OUT of the release notes: a failure
+  leaves a release visibly without bundles, never one whose notes promise files
+  that never uploaded (the exact bug the .mcpb ordering fixed).
+- Matrix is Linux-only today; macOS needs Developer ID + notarization and
+  Windows an NSIS signing cert before those rows are added.
