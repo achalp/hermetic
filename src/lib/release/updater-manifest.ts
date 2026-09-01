@@ -62,6 +62,11 @@ export interface BuildManifestArgs {
   pubDate: string;
   bundles: UpdaterBundle[];
   notes?: string;
+  /**
+   * The version the BUILT APP reports (`tauri.conf.json5` → `version`). Passed
+   * so the mismatch below can be caught here rather than on a user's machine.
+   */
+  appVersion?: string;
 }
 
 /**
@@ -71,6 +76,23 @@ export interface BuildManifestArgs {
  */
 export function buildUpdaterManifest(args: BuildManifestArgs): UpdaterManifest {
   const version = args.tag.replace(/^v/, "");
+
+  // THE UPDATE LOOP. An installed app compares the manifest's `version` against
+  // its OWN (compiled from tauri.conf.json5, not from the tag). If the release
+  // is tagged v0.2.0 while the config still says 0.1.0, the published bundle
+  // installs and STILL reports 0.1.0 — so it sees 0.2.0 on offer again, and
+  // re-downloads the identical update on every single launch, forever. Nothing
+  // upstream catches it: the build succeeds, the signature verifies, the
+  // install works. `scripts/release.sh` bumps both files; this is the guard for
+  // a hand-cut tag or a hand-edited config.
+  if (args.appVersion !== undefined && args.appVersion !== version) {
+    throw new Error(
+      `Version mismatch: tag says ${version}, the app is built as ${args.appVersion}. ` +
+        `Publishing this would make every install re-download the same update forever. ` +
+        `Bump src-tauri/tauri.conf.json5 to ${version} (scripts/release.sh does both).`
+    );
+  }
+
   const platforms: UpdaterManifest["platforms"] = {};
 
   for (const b of args.bundles) {

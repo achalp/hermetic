@@ -11,7 +11,19 @@ VERSION="${1:?usage: scripts/release.sh <semver, no leading v>}"
 [[ -z "$(git status --porcelain)" ]] || { echo "working tree not clean" >&2; exit 1; }
 git pull --ff-only
 node -e "const f='./package.json',p=require(f);p.version='$VERSION';require('fs').writeFileSync(f,JSON.stringify(p,null,2)+'\n')"
-git add package.json
+# The DESKTOP app's version must move with the tag. Tauri compiles this value
+# into the binary, and the updater compares the published manifest against it —
+# leave it behind and every install re-downloads the same update on every
+# launch, forever. Edited by regex, not JSON5 round-trip, because rewriting the
+# file would strip the §7 security rationale comments.
+node -e "
+const f='./src-tauri/tauri.conf.json5', fs=require('fs');
+const s=fs.readFileSync(f,'utf8');
+const out=s.replace(/^(\s*version:\s*)\"[^\"]*\"/m, '\$1\"$VERSION\"');
+if (out===s) { console.error('could not bump version in '+f); process.exit(1); }
+fs.writeFileSync(f,out);
+"
+git add package.json src-tauri/tauri.conf.json5
 git commit -m "release: v$VERSION"
 git tag "v$VERSION"
 git push origin main "v$VERSION"

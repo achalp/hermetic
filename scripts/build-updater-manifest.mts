@@ -14,6 +14,7 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
+import JSON5 from "json5";
 import {
   buildUpdaterManifest,
   platformForBundle,
@@ -66,11 +67,24 @@ for (const f of files) {
   bundles.push({ fileName: f.name, signature: await readFile(sig.path, "utf8") });
 }
 
+/** The version the built app reports — Tauri compiles this into the binary. */
+async function appVersion(): Promise<string> {
+  const conf = JSON5.parse(await readFile(join(ROOT, "src-tauri", "tauri.conf.json5"), "utf8")) as {
+    version?: string;
+  };
+  if (!conf.version) throw new Error("tauri.conf.json5 has no version");
+  return conf.version;
+}
+
 const manifest = buildUpdaterManifest({
   tag,
   repo: repoSlug(),
   pubDate: new Date().toISOString(),
   bundles,
+  // Guards the update loop: a tag that disagrees with the built app's version
+  // publishes an update every install re-applies forever. Fails the release
+  // job instead.
+  appVersion: await appVersion(),
 });
 await writeFile(outFile, `${JSON.stringify(manifest, null, 2)}\n`);
 console.log(`[updater] ${outFile}: ${Object.keys(manifest.platforms).join(", ")}`);

@@ -631,7 +631,9 @@ CI pins behavior, not just types: **golden transcripts** replay the three core j
 
 ### Releases
 
-Tags drive releases: `scripts/release.sh <version>` bumps `package.json`, tags `v<version>`, and pushes; CI then gates (lint, types, full suite, build), pushes the sandbox image to `ghcr.io/achalp/hermetic-sandbox` (prereleases never move `:latest`), and publishes a GitHub Release with generated notes and the `hermetic.mcpb` bundle attached.
+Tags drive releases: `scripts/release.sh <version>` bumps `package.json` **and `src-tauri/tauri.conf.json5`** (the desktop app's version must move with the tag — see the runbook), tags `v<version>`, and pushes; CI then gates (lint, types, full suite, build), pushes the sandbox image to `ghcr.io/achalp/hermetic-sandbox` (prereleases never move `:latest`), and publishes a GitHub Release with generated notes, the `hermetic.mcpb` bundle, signed desktop bundles, and the `latest.json` auto-update manifest attached.
+
+**Full procedure — including the rc-first workflow, what to verify, signing-key custody, and failure recovery: [`ops/RELEASE.md`](ops/RELEASE.md).** Cut a `-rc.N` prerelease first: it exercises the whole pipeline while staying invisible to every installed app (GitHub's `/releases/latest` excludes prereleases, and that URL is what the updater polls).
 
 ## Sandbox Runtime
 
