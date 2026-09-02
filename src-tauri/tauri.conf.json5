@@ -86,6 +86,17 @@
     // a LOCAL build without those env vars simply skips signing, so
     // `pnpm desktop:build` keeps working on a dev machine with no key.
     createUpdaterArtifacts: true,
+
+    macOS: {
+      // No Developer ID yet — publishing OS-unsigned for now is a DELIBERATE
+      // call (2026-09; the updater chain stays minisign-signed regardless).
+      // "-" ad-hoc signs the whole .app so it at least launches on Apple
+      // Silicon (arm64 refuses fully unsigned binaries); Gatekeeper still
+      // warns on first open of a downloaded copy (right-click → Open, or
+      // System Settings → Privacy & Security → Open Anyway). Replace with the
+      // real identity when Developer ID + notarization secrets land.
+      signingIdentity: "-",
+    },
   },
 
   plugins: {

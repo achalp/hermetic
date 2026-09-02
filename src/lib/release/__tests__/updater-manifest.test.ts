@@ -14,7 +14,11 @@ describe("platformForBundle", () => {
   it("maps only SELF-UPDATABLE artifacts", () => {
     expect(platformForBundle("Hermetic_0.2.0_amd64.AppImage")).toBe("linux-x86_64");
     expect(platformForBundle("Hermetic.app.tar.gz")).toBe("darwin-x86_64");
+    // The EXACT names build-desktop.mjs renames the mac updater archives to
+    // (Tauri emits arch-less `Hermetic.app.tar.gz`; the two mac release legs
+    // would collide and both read as x86_64 without the rename).
     expect(platformForBundle("Hermetic_aarch64.app.tar.gz")).toBe("darwin-aarch64");
+    expect(platformForBundle("Hermetic_x86_64.app.tar.gz")).toBe("darwin-x86_64");
     expect(platformForBundle("Hermetic_0.2.0_x64-setup.exe")).toBe("windows-x86_64");
     expect(platformForBundle("Hermetic_0.2.0_x64_en-US.msi")).toBe("windows-x86_64");
   });

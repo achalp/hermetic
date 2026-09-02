@@ -154,17 +154,17 @@ jobs:
           sha256sum -c hermetic.mcpb.sha256
           \`\`\`"
 
-  # Desktop bundles + the updater manifest (build log D42). Runs AFTER the
-  # release exists and uploads into it, because a packaged desktop build is far
-  # too slow to hold release creation. That is a deliberate departure from the
-  # .mcpb's atomic-attach rule, so the release NOTES never promise a desktop
-  # asset: a failure here leaves a release visibly WITHOUT bundles rather than
-  # one whose notes point at files that never uploaded.
+  # Desktop bundles (build log D42). Runs AFTER the release exists and uploads
+  # into it, because a packaged desktop build is far too slow to hold release
+  # creation. That is a deliberate departure from the .mcpb's atomic-attach
+  # rule, so the release NOTES never promise a desktop asset: a failure here
+  # leaves a release visibly WITHOUT bundles rather than one whose notes point
+  # at files that never uploaded.
   #
-  # `latest.json` is what installed apps poll, so it is written LAST and only
-  # from bundles carrying a sibling .sig (build-updater-manifest.mts throws
-  # otherwise) — an unsigned or partial manifest breaks auto-update for
-  # everyone already on that platform.
+  # `latest.json` is NOT built here — the updater-manifest job below assembles
+  # it from the release's actual assets after every leg finishes. A per-leg
+  # manifest with --clobber would leave whichever platform uploaded last as the
+  # ONLY platform in the manifest.
   desktop:
     name: Desktop bundle (${{ matrix.platform }})
     needs: [gate, release]
@@ -172,16 +172,46 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux first — the AppImage is the only self-updatable Linux artifact
-          # (deb/rpm update through the package manager). macOS needs Developer
-          # ID signing + notarization secrets, Windows an NSIS code-signing cert,
-          # before their rows can be added here.
+          # SIGNING STATUS (deliberate, decided 2026-09): every self-updatable
+          # bundle is minisign-signed for the UPDATER (TAURI_SIGNING_PRIVATE_KEY;
+          # build-updater-manifest throws without the .sig) and provenance-
+          # attested — but nothing is OS code-signed yet. macOS ships ad-hoc-
+          # signed (tauri.conf.json5 signingIdentity "-"; Gatekeeper warns on
+          # first open), Windows ships an unsigned NSIS installer (SmartScreen
+          # warns). Replace with Developer ID + notarization / an Authenticode
+          # cert when those secrets exist — the rows stay as they are.
+          #
+          # `attest` is the per-platform provenance subject list: everything we
+          # upload that a user can install (incl. .deb/.rpm — they skip the
+          # updater but are still downloads worth verifying).
           - os: ubuntu-latest
             platform: linux-x86_64
+            attest: |
+              src-tauri/target/release/bundle/appimage/*.AppImage
+              src-tauri/target/release/bundle/deb/*.deb
+              src-tauri/target/release/bundle/rpm/*.rpm
+          - os: macos-latest # Apple Silicon
+            platform: darwin-aarch64
+            attest: |
+              src-tauri/target/release/bundle/dmg/*.dmg
+              src-tauri/target/release/bundle/macos/*.app.tar.gz
+          - os: macos-15-intel
+            platform: darwin-x86_64
+            attest: |
+              src-tauri/target/release/bundle/dmg/*.dmg
+              src-tauri/target/release/bundle/macos/*.app.tar.gz
+          - os: windows-latest
+            platform: windows-x86_64
+            # nsis ONLY: `targets: "all"` would also emit an .msi, and BOTH map
+            # to the windows-x86_64 updater key — buildUpdaterManifest rejects
+            # the ambiguity (two bundles, one platform) and the release fails.
+            bundles: nsis
+            attest: |
+              src-tauri/target/release/bundle/nsis/*-setup.exe
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     permissions:
-      contents: write # upload bundles + latest.json onto the release
+      contents: write # upload bundles onto the release
       id-token: write # OIDC for build-provenance attestation
       attestations: write
     steps:
@@ -201,26 +231,63 @@ jobs:
       # egress-fetch release bin, purges Tauri's copy-only resource staging, then
       # assembles the sidecar (which prunes foreign-native prebuilds — one musl
       # .node aborts linuxdeploy) and bundles.
-      - name: Build desktop bundles (signed)
+      - name: Build desktop bundles (updater-signed)
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          HERMETIC_TAURI_BUNDLES: ${{ matrix.bundles }}
         run: node scripts/build-desktop.mjs
-      - name: Build latest.json from the signed bundles
-        run: pnpm exec tsx scripts/build-updater-manifest.mts "$GITHUB_REF_NAME"
       - name: Attest bundle build provenance
         uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
         with:
-          subject-path: src-tauri/target/release/bundle/appimage/*.AppImage
-      - name: Upload bundles, then the manifest
+          subject-path: ${{ matrix.attest }}
+      - name: Upload bundles
+        shell: bash # the Windows leg would otherwise get pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           shopt -s nullglob
-          ASSETS=(src-tauri/target/release/bundle/appimage/*.AppImage*)
-          ASSETS+=(src-tauri/target/release/bundle/deb/*.deb src-tauri/target/release/bundle/rpm/*.rpm)
+          # One glob set for every leg — nullglob drops the other platforms'
+          # dirs. `*.sig` siblings ride along via the trailing `*`.
+          B=src-tauri/target/release/bundle
+          ASSETS=("$B"/appimage/*.AppImage* "$B"/deb/*.deb "$B"/rpm/*.rpm)
+          ASSETS+=("$B"/dmg/*.dmg "$B"/macos/*.app.tar.gz*)
+          ASSETS+=("$B"/nsis/*-setup.exe*)
+          [[ ${#ASSETS[@]} -gt 0 ]] || { echo "no bundles produced" >&2; exit 1; }
           gh release upload "$GITHUB_REF_NAME" "${ASSETS[@]}" --clobber
-          # LAST: only now can an installed app discover this version, and every
-          # URL the manifest names is already uploaded.
+
+  # `latest.json` is what installed apps poll, so it is written LAST, in its own
+  # job, from the assets that ACTUALLY uploaded — every URL it names is already
+  # live, and one slow/failed leg cannot clobber another platform out of the
+  # manifest. It runs even when a desktop leg failed (fail-fast: false above):
+  # surviving platforms still get updates; a failed platform is simply absent
+  # (its installs see "no update available" — a visible red leg in this run,
+  # not a broken updater). build-updater-manifest.mts still throws on an
+  # updatable asset missing its .sig and on an empty platform set.
+  updater-manifest:
+    name: Update manifest (latest.json)
+    needs: [release, desktop]
+    if: ${{ !cancelled() && needs.release.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # upload latest.json onto the release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build latest.json from the release's uploaded assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm exec tsx scripts/build-updater-manifest.mts "$GITHUB_REF_NAME" --from-release
+      - name: Upload the manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # LAST: only now can an installed app discover this version.
           gh release upload "$GITHUB_REF_NAME" latest.json --clobber
