@@ -77,6 +77,8 @@ function buildStandaloneWithoutData() {
     execFileSync("pnpm", ["build"], {
       cwd: ROOT,
       stdio: "inherit",
+      // .cmd shim on Windows — Node refuses to spawn it without a shell.
+      shell: process.platform === "win32",
       env: { ...process.env, HERMETIC_STANDALONE: "1" },
     });
   } finally {

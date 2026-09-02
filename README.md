@@ -137,7 +137,7 @@ pnpm desktop:build     # egress-fetch (release) → tauri build → src-tauri/ta
 pnpm desktop:dev       # or run it in dev mode (Next dev server + Tauri window)
 ```
 
-A `tauri build` produces a **per-OS** installer and must be run **on each target OS** (native webview + code signing are per-platform); prebuilt, signed downloads are published from the releases page.
+A `tauri build` produces a **per-OS** installer and must be run **on each target OS** (native webview + code signing are per-platform); prebuilt downloads for Linux, macOS (both arches), and Windows are published from the releases page — updater-signed and provenance-attested, but **not yet OS code-signed** (macOS Gatekeeper / Windows SmartScreen will warn on first open; see [`ops/RELEASE.md`](ops/RELEASE.md)).
 
 ### Manual Setup
 
@@ -631,7 +631,7 @@ CI pins behavior, not just types: **golden transcripts** replay the three core j
 
 ### Releases
 
-Tags drive releases: `scripts/release.sh <version>` bumps `package.json` **and `src-tauri/tauri.conf.json5`** (the desktop app's version must move with the tag — see the runbook), tags `v<version>`, and pushes; CI then gates (lint, types, full suite, build), pushes the sandbox image to `ghcr.io/achalp/hermetic-sandbox` (prereleases never move `:latest`), and publishes a GitHub Release with generated notes, the `hermetic.mcpb` bundle, signed desktop bundles, and the `latest.json` auto-update manifest attached.
+Tags drive releases: `scripts/release.sh <version>` bumps `package.json` **and `src-tauri/tauri.conf.json5`** (the desktop app's version must move with the tag — see the runbook), tags `v<version>`, and pushes; CI then gates (lint, types, full suite, build), pushes the sandbox image to `ghcr.io/achalp/hermetic-sandbox` (prereleases never move `:latest`), and publishes a GitHub Release with generated notes, the `hermetic.mcpb` bundle, desktop bundles for Linux/macOS/Windows (updater-signed; not yet OS code-signed), and the `latest.json` auto-update manifest attached.
 
 **Full procedure — including the rc-first workflow, what to verify, signing-key custody, and failure recovery: [`ops/RELEASE.md`](ops/RELEASE.md).** Cut a `-rc.N` prerelease first: it exercises the whole pipeline while staying invisible to every installed app (GitHub's `/releases/latest` excludes prereleases, and that URL is what the updater polls).
 

@@ -57,12 +57,14 @@ gh run watch $(gh run list --workflow=release.yml -L1 --json databaseId -q '.[0]
 
 Publishes, all marked prerelease:
 
-| Artifact                 | Where                                                                      |
-| ------------------------ | -------------------------------------------------------------------------- |
-| Sandbox image            | `ghcr.io/achalp/hermetic-sandbox:0.2.0-rc.1` (**`:latest` does not move**) |
-| Claude Desktop extension | `hermetic.mcpb` + `.sha256` on the release                                 |
-| Desktop bundles          | `.AppImage` (+ `.sig`), `.deb`, `.rpm`                                     |
-| Update manifest          | `latest.json`                                                              |
+| Artifact                 | Where                                                                                         |
+| ------------------------ | --------------------------------------------------------------------------------------------- |
+| Sandbox image            | `ghcr.io/achalp/hermetic-sandbox:0.2.0-rc.1` (**`:latest` does not move**)                    |
+| Claude Desktop extension | `hermetic.mcpb` + `.sha256` on the release                                                    |
+| Desktop bundles (Linux)  | `.AppImage` (+ `.sig`), `.deb`, `.rpm`                                                        |
+| Desktop bundles (macOS)  | `.dmg` + `Hermetic_{aarch64,x86_64}.app.tar.gz` (+ `.sig`) — one leg per arch                 |
+| Desktop bundles (Win)    | `*-setup.exe` (+ `.sig`) — NSIS only (an `.msi` would collide on the windows-x86_64 key)      |
+| Update manifest          | `latest.json` — built LAST, in its own job, from the assets that actually uploaded (all legs) |
 
 ### Verify the prerelease
 
@@ -150,6 +152,30 @@ Don't tag by hand. If you must, bump both files first.
 
 ---
 
+## Signing status: updater-signed, provenance-attested, NOT OS code-signed
+
+Three distinct mechanisms, and only the third is missing — deliberately
+(decided 2026-09: ship unsigned-for-the-OS now rather than not ship macOS/
+Windows at all):
+
+1. **Updater signatures (minisign)** — every self-updatable bundle on every
+   platform. This is what protects the auto-update path; see below.
+2. **Build provenance** — every installer we upload (`.AppImage`, `.deb`,
+   `.rpm`, `.dmg`, `.app.tar.gz`, `-setup.exe`) is attested;
+   `gh attestation verify <file> --repo achalp/hermetic` proves it came from
+   this repo's release workflow.
+3. **OS code signing** — none yet. Consequences users will see, worth stating
+   in any download instructions:
+   - **macOS**: the `.app` is ad-hoc signed (`signingIdentity: "-"` in
+     `tauri.conf.json5` — required for it to launch on Apple Silicon at all).
+     Gatekeeper blocks the first open of a downloaded copy: right-click →
+     Open, or System Settings → Privacy & Security → "Open Anyway". Goes away
+     when Developer ID + notarization secrets land.
+   - **Windows**: SmartScreen shows "unrecognized app" until an Authenticode
+     cert lands ("More info" → "Run anyway").
+   - Auto-updates are NOT affected: the updater verifies the minisign
+     signature itself and doesn't re-trigger Gatekeeper/SmartScreen.
+
 ## Signing keys
 
 Desktop updates are minisign-signed; Tauri verifies every download against the
@@ -177,11 +203,15 @@ can't be published as updates.
 
 ## If something goes wrong
 
-**The desktop job failed but the release exists.** Expected and safe: desktop
+**A desktop leg failed but the release exists.** Expected and safe: desktop
 bundles attach _after_ release creation (a packaged build is too slow to hold
-it), which is why release notes never mention them. The release is simply
-missing bundles. Fix the cause, re-run the job, or delete the release + tag and
-re-cut.
+it), which is why release notes never mention them. The matrix runs with
+`fail-fast: false`, and `latest.json` is built afterwards from the assets that
+_actually uploaded_ — so the surviving platforms still ship and still update,
+while the failed platform is simply absent from the manifest (its installs see
+"no update available" until a release that includes it). Fix the cause and
+re-run the failed leg — the updater-manifest job then rebuilds `latest.json`
+with every platform — or delete the release + tag and re-cut.
 
 **`No <bundle>.sig — was TAURI_SIGNING_PRIVATE_KEY set for the build?`** The
 signing secrets are missing or misnamed in repo settings. Nothing partial was
