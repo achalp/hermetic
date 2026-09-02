@@ -1,6 +1,6 @@
 {
   "name": "hermetic",
-  "version": "0.2.0",
+  "version": "0.3.0-rc.1",
   "description": "Upload CSV/Excel files, ask questions in natural language, get interactive dashboards powered by Claude",
   "license": "MIT",
   "author": "Hermetic Contributors",
