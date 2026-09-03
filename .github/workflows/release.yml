@@ -197,26 +197,26 @@ jobs:
               src-tauri/target/release/bundle/macos/*.app.tar.gz
           - os: macos-15-intel
             platform: darwin-x86_64
-            # app only, NO dmg: bundle_dmg.sh/hdiutil hung 14 minutes and died
-            # on this runner (v0.3.0-rc.1; orphaned diskimages-help process —
-            # the known Intel-runner dmg flakiness). The updater archive is
-            # what matters; Intel users download the .app.tar.gz.
+            # `bundles: app` + HERMETIC_HDIUTIL_DMG: Tauri's bundle_dmg.sh
+            # (create→mount→style→detach→convert) hung 14 minutes and died on
+            # this runner (v0.3.0-rc.1, orphaned diskimages-help — detach is
+            # the classic hang point), so build-desktop.mjs makes the dmg
+            # itself with one un-mounted `hdiutil create` + timeout/retries.
             bundles: app
+            hdiutilDmg: "1"
             attest: |
+              src-tauri/target/release/bundle/dmg/*.dmg
               src-tauri/target/release/bundle/macos/*.app.tar.gz
-          # NO windows row yet — blocked UPSTREAM, not by signing: Next 16.1's
-          # Turbopack standalone build emits chunk files named
-          # `[externals]_node:fs_….js`, and the `:` is an NTFS ADS separator —
-          # `copyfile` dies with EINVAL on the runner (v0.3.0-rc.2; fixed only
-          # in Next 16.2 canaries — vercel/next.js#89985). Re-add when the repo
-          # is on Next >= 16.2 stable, as:
-          #   - os: windows-latest
-          #     platform: windows-x86_64
-          #     bundles: nsis   # nsis ONLY: an .msi would also map to the
-          #                     # windows-x86_64 updater key (manifest rejects
-          #                     # the ambiguity)
-          #     attest: |
-          #       src-tauri/target/release/bundle/nsis/*-setup.exe
+          - os: windows-latest
+            platform: windows-x86_64
+            # Requires Next >= 16.2: 16.1's Turbopack emitted `:` in chunk
+            # filenames (NTFS ADS separator, EINVAL — vercel/next.js#89985;
+            # killed the v0.3.0-rc.2 leg). nsis ONLY: an .msi would also map
+            # to the windows-x86_64 updater key and buildUpdaterManifest
+            # rejects the ambiguity (two bundles, one platform).
+            bundles: nsis
+            attest: |
+              src-tauri/target/release/bundle/nsis/*-setup.exe
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     permissions:
@@ -245,6 +245,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           HERMETIC_TAURI_BUNDLES: ${{ matrix.bundles }}
+          HERMETIC_HDIUTIL_DMG: ${{ matrix.hdiutilDmg }}
         run: node scripts/build-desktop.mjs
       - name: Attest bundle build provenance
         uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2

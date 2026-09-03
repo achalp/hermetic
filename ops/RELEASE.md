@@ -57,14 +57,14 @@ gh run watch $(gh run list --workflow=release.yml -L1 --json databaseId -q '.[0]
 
 Publishes, all marked prerelease:
 
-| Artifact                 | Where                                                                                                                                                                                        |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sandbox image            | `ghcr.io/achalp/hermetic-sandbox:0.2.0-rc.1` (**`:latest` does not move**)                                                                                                                   |
-| Claude Desktop extension | `hermetic.mcpb` + `.sha256` on the release                                                                                                                                                   |
-| Desktop bundles (Linux)  | `.AppImage` (+ `.sig`), `.deb`, `.rpm`                                                                                                                                                       |
-| Desktop bundles (macOS)  | `Hermetic_{aarch64,x86_64}.app.tar.gz` (+ `.sig`), `.dmg` on Apple Silicon only (hdiutil hangs on the Intel runner)                                                                          |
-| Desktop bundles (Win)    | **not published yet** — Next 16.1 Turbopack emits `:` in chunk filenames, which NTFS rejects (vercel/next.js#89985); the matrix row is commented out in release.yml until Next ≥ 16.2 stable |
-| Update manifest          | `latest.json` — built LAST, in its own job, from the assets that actually uploaded (all legs)                                                                                                |
+| Artifact                 | Where                                                                                                                                                                                      |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Sandbox image            | `ghcr.io/achalp/hermetic-sandbox:0.2.0-rc.1` (**`:latest` does not move**)                                                                                                                 |
+| Claude Desktop extension | `hermetic.mcpb` + `.sha256` on the release                                                                                                                                                 |
+| Desktop bundles (Linux)  | `.AppImage` (+ `.sig`), `.deb`, `.rpm`                                                                                                                                                     |
+| Desktop bundles (macOS)  | `Hermetic_{aarch64,x86_64}.app.tar.gz` (+ `.sig`) and a `.dmg` per arch — the Intel dmg is a plain unstyled `hdiutil create` (Tauri's bundle_dmg.sh hangs on that runner)                  |
+| Desktop bundles (Win)    | `*-setup.exe` (+ `.sig`) — NSIS only (an `.msi` would collide on the windows-x86_64 updater key). Needs Next ≥ 16.2 (16.1 Turbopack emitted `:` in chunk filenames — vercel/next.js#89985) |
+| Update manifest          | `latest.json` — built LAST, in its own job, from the assets that actually uploaded (all legs)                                                                                              |
 
 ### Verify the prerelease
 

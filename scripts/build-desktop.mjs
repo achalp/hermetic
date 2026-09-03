@@ -22,7 +22,15 @@
  */
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
-import { existsSync, readdirSync, renameSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 // pnpm on Windows is a .cmd shim, which Node refuses to spawn without a shell
@@ -73,6 +81,48 @@ if (process.platform === "darwin") {
     renameSync(join(dir, f), join(dir, renamed));
     console.log(`[desktop] renamed ${f} → ${renamed}`);
   }
+}
+
+// macOS, HERMETIC_HDIUTIL_DMG=1: build the .dmg OURSELVES with a single plain
+// `hdiutil create` instead of Tauri's bundle_dmg.sh. That script's
+// create→mount→style→detach→convert cycle is what hung 14 minutes and died on
+// the Intel runner (v0.3.0-rc.1, orphaned diskimages-help — detach is the
+// classic hang point); a one-shot -srcfolder create never mounts anything.
+// Costs the styled Finder window; keeps the drag-to-/Applications affordance
+// via a symlink in the staging dir. Per-attempt timeout turns a silent hang
+// into a retry.
+if (process.platform === "darwin" && process.env.HERMETIC_HDIUTIL_DMG === "1") {
+  const conf = readFileSync(resolve(ROOT, "src-tauri/tauri.conf.json5"), "utf8");
+  const version = /^\s*version:\s*"([^"]+)"/m.exec(conf)?.[1];
+  if (!version) throw new Error("no version in tauri.conf.json5");
+  const arch = process.arch === "arm64" ? "aarch64" : "x64"; // tauri's dmg arch labels
+  const dmgDir = resolve(ROOT, "src-tauri/target/release/bundle/dmg");
+  const dmg = join(dmgDir, `Hermetic_${version}_${arch}.dmg`);
+  const app = resolve(ROOT, "src-tauri/target/release/bundle/macos/Hermetic.app");
+  const staging = join(dmgDir, "staging");
+  rmSync(staging, { recursive: true, force: true });
+  mkdirSync(staging, { recursive: true });
+  execFileSync("cp", ["-a", app, join(staging, "Hermetic.app")]);
+  symlinkSync("/Applications", join(staging, "Applications"));
+  let lastErr;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      console.log(`\n[desktop] hdiutil create (attempt ${attempt}/3)…`);
+      execFileSync(
+        "hdiutil",
+        ["create", "-volname", "Hermetic", "-srcfolder", staging, "-ov", "-format", "UDZO", dmg],
+        { stdio: "inherit", timeout: 5 * 60 * 1000, killSignal: "SIGKILL" }
+      );
+      lastErr = null;
+      break;
+    } catch (e) {
+      lastErr = e;
+      console.error(`[desktop] hdiutil attempt ${attempt} failed: ${e?.message || e}`);
+    }
+  }
+  rmSync(staging, { recursive: true, force: true });
+  if (lastErr) throw lastErr;
+  console.log(`[desktop] dmg written: ${dmg}`);
 }
 
 console.log("\n[desktop] done — see src-tauri/target/release/bundle/");
