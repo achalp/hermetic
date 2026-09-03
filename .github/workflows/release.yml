@@ -197,8 +197,12 @@ jobs:
               src-tauri/target/release/bundle/macos/*.app.tar.gz
           - os: macos-15-intel
             platform: darwin-x86_64
+            # app only, NO dmg: bundle_dmg.sh/hdiutil hung 14 minutes and died
+            # on this runner (v0.3.0-rc.1; orphaned diskimages-help process —
+            # the known Intel-runner dmg flakiness). The updater archive is
+            # what matters; Intel users download the .app.tar.gz.
+            bundles: app
             attest: |
-              src-tauri/target/release/bundle/dmg/*.dmg
               src-tauri/target/release/bundle/macos/*.app.tar.gz
           - os: windows-latest
             platform: windows-x86_64
