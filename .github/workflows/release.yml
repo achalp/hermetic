@@ -204,14 +204,19 @@ jobs:
             bundles: app
             attest: |
               src-tauri/target/release/bundle/macos/*.app.tar.gz
-          - os: windows-latest
-            platform: windows-x86_64
-            # nsis ONLY: `targets: "all"` would also emit an .msi, and BOTH map
-            # to the windows-x86_64 updater key — buildUpdaterManifest rejects
-            # the ambiguity (two bundles, one platform) and the release fails.
-            bundles: nsis
-            attest: |
-              src-tauri/target/release/bundle/nsis/*-setup.exe
+          # NO windows row yet — blocked UPSTREAM, not by signing: Next 16.1's
+          # Turbopack standalone build emits chunk files named
+          # `[externals]_node:fs_….js`, and the `:` is an NTFS ADS separator —
+          # `copyfile` dies with EINVAL on the runner (v0.3.0-rc.2; fixed only
+          # in Next 16.2 canaries — vercel/next.js#89985). Re-add when the repo
+          # is on Next >= 16.2 stable, as:
+          #   - os: windows-latest
+          #     platform: windows-x86_64
+          #     bundles: nsis   # nsis ONLY: an .msi would also map to the
+          #                     # windows-x86_64 updater key (manifest rejects
+          #                     # the ambiguity)
+          #     attest: |
+          #       src-tauri/target/release/bundle/nsis/*-setup.exe
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     permissions:
