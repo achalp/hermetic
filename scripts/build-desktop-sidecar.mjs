@@ -53,7 +53,15 @@ function buildStandaloneWithoutData() {
   // would be copied into .next/standalone, filling the disk. Move each aside with an
   // atomic rename (same fs) for the build; a finally + signal handlers ALWAYS
   // restore, so a user's data/ (history) is never stranded.
-  const asides = ["data", "rust", "src-tauri"]
+  // src-tauri CANNOT be moved aside on Windows: this script runs as `tauri
+  // build`'s beforeBuildCommand, and the live tauri process holds handles
+  // into src-tauri — Windows refuses the rename (EBUSY; broke the v0.3.0-rc.1
+  // windows leg). Turbopack then traces src-tauri into the standalone, but on
+  // a fresh CI runner it is only sources + icons (target/ doesn't exist until
+  // tauri compiles, AFTER this hook) and the post-clean below removes it from
+  // OUT. A Windows dev machine with a fat src-tauri/target pays a slow copy —
+  // accepted; the other asides (data, rust) still move.
+  const asides = ["data", "rust", ...(process.platform === "win32" ? [] : ["src-tauri"])]
     .map((rel) => ({
       dir: join(ROOT, rel),
       bak: join(ROOT, `.${rel.replace(/\//g, "-")}-build-bak`),
