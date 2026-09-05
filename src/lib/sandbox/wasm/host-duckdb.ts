@@ -21,8 +21,41 @@
  * integration tests (HERMETIC_WASM_TEST).
  */
 import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { hermeticPaths } from "@/lib/paths";
+
+/**
+ * The bundle candidates present in `distDir`, preferred first. A full
+ * node_modules install has mvp+eh; the .mcpb vendors ONLY eh (the mvp module
+ * is 41 MB of fallback for pre-wasm-EH engines no supported Node needs) — so
+ * candidates are filtered by what actually exists rather than hardcoded.
+ * Exported for tests; throws when the dist has neither (a truncated vendor
+ * must fail loudly at boot, not as a cryptic instantiate error).
+ */
+export function availableDuckDbBundles(
+  distDir: string
+): Record<string, { mainModule: string; mainWorker: string }> {
+  const candidates = {
+    eh: {
+      mainModule: join(distDir, "duckdb-eh.wasm"),
+      mainWorker: join(distDir, "duckdb-node-eh.worker.cjs"),
+    },
+    mvp: {
+      mainModule: join(distDir, "duckdb-mvp.wasm"),
+      mainWorker: join(distDir, "duckdb-node-mvp.worker.cjs"),
+    },
+  };
+  const present = Object.fromEntries(
+    Object.entries(candidates).filter(([, b]) => existsSync(b.mainModule))
+  );
+  if (Object.keys(present).length === 0) {
+    throw new Error(
+      `No DuckDB-WASM node bundle found under ${distDir} — the dist is missing or truncated`
+    );
+  }
+  return present;
+}
 
 /** The blocking connection's surface, narrowed to what we actually call. */
 export interface HostDuckDbConn {
@@ -44,17 +77,7 @@ export async function hostDuckDb(): Promise<HostDuckDbConn> {
       // hermeticPaths, same pattern as pyodideDir.
       const require = createRequire(import.meta.url);
       const duckdb = require(entry);
-      const distDir = hermeticPaths.duckdbNodeDistDir();
-      const bundles = {
-        mvp: {
-          mainModule: join(distDir, "duckdb-mvp.wasm"),
-          mainWorker: join(distDir, "duckdb-node-mvp.worker.cjs"),
-        },
-        eh: {
-          mainModule: join(distDir, "duckdb-eh.wasm"),
-          mainWorker: join(distDir, "duckdb-node-eh.worker.cjs"),
-        },
-      };
+      const bundles = availableDuckDbBundles(hermeticPaths.duckdbNodeDistDir());
       const db = await duckdb.createDuckDB(bundles, new duckdb.VoidLogger(), duckdb.NODE_RUNTIME);
       await db.instantiate();
       return db.connect() as HostDuckDbConn;

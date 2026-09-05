@@ -19,10 +19,31 @@
  */
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { chmodSync, existsSync } from "node:fs";
 import { setPathRoots } from "@/lib/paths";
+import { bundledEgressBinRelPath } from "@/lib/release/egress-bin-layout";
 
 const bundleRoot = __dirname;
 process.env.HERMETIC_MCP_VIEWER_DIST ??= join(bundleRoot, "viewer-dist");
+
+// The vendored Rust egress-fetch binary (host-side remote-read edge: manifest
+// fetch, S3 listing, ranged reads). Same env pin the Tauri sidecar uses, so
+// lib/paths needs no bundle-specific logic. `??=` keeps a user override
+// authoritative. Zip extraction can drop the exec bit — restore it, best-effort
+// (a failure surfaces later as the spawn error, which names the bin path).
+const binRel = bundledEgressBinRelPath(process.platform, process.arch);
+if (binRel && !process.env.HERMETIC_EGRESS_FETCH_BIN) {
+  const bin = join(bundleRoot, ...binRel.split("/"));
+  if (existsSync(bin)) {
+    try {
+      chmodSync(bin, 0o755);
+    } catch {
+      /* read-only install dir — the bit was set at pack time */
+    }
+    process.env.HERMETIC_EGRESS_FETCH_BIN = bin;
+  }
+}
+
 setPathRoots({
   assetRoot: bundleRoot,
   dataRoot: process.env.HERMETIC_DATA_ROOT ?? join(homedir(), ".hermetic", "data"),

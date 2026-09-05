@@ -104,6 +104,64 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
+  # One NATIVE release build of the Rust egress-fetch bin per platform — the
+  # host-side remote-read edge (manifest fetch, S3 listing, ranged wasm reads).
+  # Built ONCE here and reused twice: vendored into the .mcpb (the bundle
+  # resolves it by platform at boot — src/lib/release/egress-bin-layout.ts),
+  # and handed to each desktop leg so those legs skip their own cargo build.
+  # Runs in parallel with the sandbox image; only `gate` blocks it.
+  egress-bins:
+    name: egress-fetch (${{ matrix.id }})
+    needs: gate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ids are Node `process.platform`-`process.arch` — the SAME naming
+          # egress-bin-layout.ts resolves at runtime. Keep the two lists equal.
+          - os: ubuntu-latest
+            id: linux-x64
+          - os: ubuntu-24.04-arm
+            id: linux-arm64
+          - os: macos-15-intel
+            id: darwin-x64
+          - os: macos-latest
+            id: darwin-arm64
+          - os: windows-latest
+            id: win32-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write # OIDC for build-provenance attestation
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build egress-fetch (release)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --locked --bin egress-fetch
+        working-directory: rust/egress-core
+      - name: Stage under the layout id
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN=egress-fetch
+          [[ "${{ matrix.id }}" == win32-* ]] && BIN=egress-fetch.exe
+          mkdir -p "dist/egress-bins/${{ matrix.id }}"
+          cp "rust/egress-core/target/release/$BIN" "dist/egress-bins/${{ matrix.id }}/$BIN"
+      - name: Attest bin build provenance
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        with:
+          subject-path: dist/egress-bins/${{ matrix.id }}/*
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: egress-bin-${{ matrix.id }}
+          path: dist/egress-bins
+          if-no-files-found: error
+          retention-days: 3
+
   # Build + smoke + attest the .mcpb, THEN create the release with the bundle
   # and its checksum attached at creation. Ordering matters: the old pipeline
   # published the GitHub Release first and built the bundle in a later job, so a
@@ -112,7 +170,7 @@ jobs:
   # any release exists, and `gh release create` attaches the assets atomically.
   release:
     name: GitHub Release (+ attested bundle)
-    needs: [gate, sandbox-image]
+    needs: [gate, sandbox-image, egress-bins]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -127,8 +185,21 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # All five per-platform bins land under dist/egress-bins/<id>/ (each
+      # artifact was uploaded with that subdir; merge-multiple folds them into
+      # one tree). REQUIRE_ALL: a missing platform fails the BUILD here rather
+      # than shipping a bundle that quietly lacks manifests on that platform.
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          pattern: egress-bin-*
+          path: dist/egress-bins
+          merge-multiple: true
       - run: pnpm run mcpb:build
+        env:
+          HERMETIC_MCPB_REQUIRE_ALL_BINS: "1"
       - run: pnpm run mcpb:smoke
+        env:
+          HERMETIC_MCPB_REQUIRE_ALL_BINS: "1"
       - name: Attest bundle build provenance
         uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
         with:
@@ -167,7 +238,10 @@ jobs:
   # ONLY platform in the manifest.
   desktop:
     name: Desktop bundle (${{ matrix.platform }})
-    needs: [gate, release]
+    # egress-bins in needs: each leg REUSES that job's native bin (binId maps
+    # this leg to its artifact) instead of running its own cargo build — one
+    # Rust build per platform per release, shared by mcpb and desktop.
+    needs: [gate, release, egress-bins]
     strategy:
       fail-fast: false
       matrix:
@@ -186,17 +260,20 @@ jobs:
           # updater but are still downloads worth verifying).
           - os: ubuntu-latest
             platform: linux-x86_64
+            binId: linux-x64
             attest: |
               src-tauri/target/release/bundle/appimage/*.AppImage
               src-tauri/target/release/bundle/deb/*.deb
               src-tauri/target/release/bundle/rpm/*.rpm
           - os: macos-latest # Apple Silicon
             platform: darwin-aarch64
+            binId: darwin-arm64
             attest: |
               src-tauri/target/release/bundle/dmg/*.dmg
               src-tauri/target/release/bundle/macos/*.app.tar.gz
           - os: macos-15-intel
             platform: darwin-x86_64
+            binId: darwin-x64
             # `bundles: app` + HERMETIC_HDIUTIL_DMG: Tauri's bundle_dmg.sh
             # (create→mount→style→detach→convert) hung 14 minutes and died on
             # this runner (v0.3.0-rc.1, orphaned diskimages-help — detach is
@@ -209,6 +286,7 @@ jobs:
               src-tauri/target/release/bundle/macos/*.app.tar.gz
           - os: windows-latest
             platform: windows-x86_64
+            binId: win32-x64
             # Requires Next >= 16.2: 16.1's Turbopack emitted `:` in chunk
             # filenames (NTFS ADS separator, EINVAL — vercel/next.js#89985;
             # killed the v0.3.0-rc.2 leg). nsis ONLY: an .msi would also map
@@ -236,9 +314,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf file
       - run: pnpm install --frozen-lockfile
-      # The same script a maintainer runs locally (start.sh option 1): builds the
-      # egress-fetch release bin, purges Tauri's copy-only resource staging, then
-      # assembles the sidecar (which prunes foreign-native prebuilds — one musl
+      - name: Fetch this platform's prebuilt egress-fetch
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: egress-bin-${{ matrix.binId }}
+          path: dist/egress-bins
+      # The same script a maintainer runs locally (start.sh option 1) — except
+      # the egress-fetch bin comes PREBUILT from the egress-bins job (same
+      # commit, same profile, attested there), so this leg skips its cargo
+      # build. The script still purges Tauri's copy-only resource staging,
+      # assembles the sidecar (pruning foreign-native prebuilds — one musl
       # .node aborts linuxdeploy) and bundles.
       - name: Build desktop bundles (updater-signed)
         env:
@@ -246,6 +331,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           HERMETIC_TAURI_BUNDLES: ${{ matrix.bundles }}
           HERMETIC_HDIUTIL_DMG: ${{ matrix.hdiutilDmg }}
+          HERMETIC_EGRESS_FETCH_PREBUILT: dist/egress-bins/${{ matrix.binId }}/egress-fetch${{ startsWith(matrix.binId, 'win32') && '.exe' || '' }}
         run: node scripts/build-desktop.mjs
       - name: Attest bundle build provenance
         uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
