@@ -106,7 +106,7 @@
     "html-to-image": "^1.11.13",
     "jspdf": "^4.2.0",
     "maplibre-gl": "^6.5.0",
-    "microsandbox": "^0.1.1",
+    "microsandbox": "^0.6.16",
     "next": "16.2.12",
     "papaparse": "^5.5.3",
     "pg": "^8.20.0",
