@@ -97,7 +97,7 @@
     "@smithy/protocol-http": "5.5.1",
     "@smithy/signature-v4": "5.5.1",
     "@tanstack/react-table": "^8.21.3",
-    "@uiw/react-codemirror": "^4.25.9",
+    "@uiw/react-codemirror": "^4.25.11",
     "ai": "^7.0.77",
     "chokidar": "^5.0.0",
     "docx": "^9.6.0",
