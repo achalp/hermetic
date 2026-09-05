@@ -71,7 +71,7 @@
     "@codemirror/theme-one-dark": "^6.1.3",
     "@databricks/sql": "^2.0.0",
     "@deck.gl/aggregation-layers": "^9.2.9",
-    "@deck.gl/core": "^9.2.9",
+    "@deck.gl/core": "^9.3.11",
     "@deck.gl/geo-layers": "^9.2.9",
     "@deck.gl/layers": "^9.2.9",
     "@deck.gl/react": "^9.2.9",
