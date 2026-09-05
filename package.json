@@ -110,7 +110,7 @@
     "next": "16.2.12",
     "papaparse": "^5.5.3",
     "pg": "^8.20.0",
-    "plotly.js-cartesian-dist": "^3.4.0",
+    "plotly.js-cartesian-dist": "^4.0.0",
     "plotly.js-finance-dist": "^3.4.0",
     "plotly.js-gl3d-dist": "^3.4.0",
     "pptxgenjs": "^4.0.1",
