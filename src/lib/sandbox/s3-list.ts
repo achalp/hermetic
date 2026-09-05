@@ -35,8 +35,11 @@ export interface S3ListPage {
  */
 export const MAX_ENUMERATED_FILES = 2000;
 
-/** Decode the five XML entities S3 uses in keys. Keys may legitimately contain `&`. */
-function unescapeXml(s: string): string {
+/** Decode the five XML entities S3 uses in keys. Keys may legitimately contain `&`.
+ *  Exported for azure-list.ts: one decoder, one place the ordering below is right
+ *  (a doubly-escaped `&amp;lt;` must not collapse to `<`), rather than two copies
+ *  that can drift apart. */
+export function unescapeXml(s: string): string {
   return s
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")

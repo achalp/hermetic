@@ -17,8 +17,10 @@
  *   first item's asset    → entity URL: the exact file when the collection has
  *                           ONE item; the asset's directory + `/*.parquet` when
  *                           it has many (Overture's layout: one directory per
- *                           type). Preferred asset: an S3-identity href (LIST
- *                           enumeration works there), else the first parquet.
+ *                           type). Preferred asset: a host whose container we can
+ *                           LIST — S3 first, then Azure Blob — else the first
+ *                           parquet (fine for a single-file collection; a
+ *                           multi-file one on an unlistable host is skipped).
  *
  * Bounds & trust:
  *   - traversal follows `child` links only on the SAME storage identity as the
@@ -42,6 +44,7 @@ import {
   MAX_NAME_CHARS,
 } from "./shared";
 import { logger, errMessage } from "@/lib/logger";
+import { splitAzurePrefix } from "@/lib/sandbox/azure-list";
 
 type Rec = Record<string, unknown>;
 const isRec = (v: unknown): v is Rec => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -77,8 +80,11 @@ function linksOf(json: Rec, baseUrl: string): Link[] {
   });
 }
 
-/** Pick the asset href for an item: prefer an S3-identity parquet (our LIST
- *  enumeration speaks S3), else the first http(s) parquet asset. */
+/** Pick the asset href for an item: prefer a host we can ENUMERATE — S3 first,
+ *  then Azure Blob — else the first http(s) parquet asset. The order only decides
+ *  anything for a multi-file collection, where an unlistable host means the
+ *  entity is dropped entirely; for a one-item collection every parquet reads the
+ *  same, so nothing is lost by preferring the listable mirror. */
 export function pickItemAsset(item: unknown): string | null {
   if (!isRec(item) || !isRec(item.assets)) return null;
   const hrefs: string[] = [];
@@ -89,7 +95,8 @@ export function pickItemAsset(item: unknown): string | null {
     hrefs.push(a.href);
   }
   const s3 = hrefs.find((h) => storageIdentity(h)?.ns === "s3");
-  return s3 ?? hrefs[0] ?? null;
+  const azure = hrefs.find((h) => splitAzurePrefix(h) !== null);
+  return s3 ?? azure ?? hrefs[0] ?? null;
 }
 
 /** An https S3-vhost href as `s3://bucket/key` — the form enumeration and the
@@ -167,19 +174,24 @@ export async function resolveStacManifest(
     const item = await fetchJson(firstItemUrl);
     const asset = pickItemAsset(item);
     if (!asset) return;
-    // Many items ⇒ the collection is a directory of part files. Multi-file
-    // reads go through S3 LIST enumeration, which speaks s3:// only — so the
-    // vhost href converts to s3:// form. A multi-file collection with NO S3
-    // asset is SKIPPED (never truncated to its first file: partial data would
-    // produce confidently wrong answers, the one failure mode worse than none).
+    // Many items ⇒ the collection is a directory of part files, read by
+    // enumerating that directory. S3 enumeration speaks s3:// only, so a vhost
+    // href converts to s3:// form; Azure Blob enumerates from the https URL as
+    // written. A multi-file collection on a host we cannot LIST is still SKIPPED
+    // — never truncated to its first file, because partial data produces
+    // confidently wrong answers, the one failure mode worse than none.
     let url: string;
     if (itemLinks.length > 1) {
       const s3 = toS3Url(asset);
-      if (!s3) {
-        logger.warn("STAC: multi-file collection has no S3 asset — skipped", { name });
+      const listable = s3 ?? (splitAzurePrefix(asset) ? asset : null);
+      if (!listable) {
+        logger.warn("STAC: multi-file collection on a host with no listing — skipped", {
+          name,
+          asset,
+        });
         return;
       }
-      url = `${s3.slice(0, s3.lastIndexOf("/"))}/*.parquet`;
+      url = `${listable.slice(0, listable.lastIndexOf("/"))}/*.parquet`;
     } else {
       url = asset;
     }

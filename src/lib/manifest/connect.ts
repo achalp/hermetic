@@ -19,6 +19,7 @@ import type { RemoteCreds } from "@/lib/contracts/storage-types";
 import type { DatasetManifest, ManifestEntity } from "@/lib/contracts/dataset-manifest";
 import { parseDatasetManifestText } from "./parse";
 import { looksLikeStac, resolveStacManifest } from "./stac";
+import { materializeEntities } from "./ensure";
 import { partitionManifestEntities } from "./same-host";
 import { ManifestError, MAX_MANIFEST_BYTES, MANIFEST_EAGER_BUDGET_MS } from "./shared";
 import type { EntityState, ManifestRecord, ManifestStore } from "./store";
@@ -137,84 +138,23 @@ export async function connectDatasetManifest(
   }
   const manifest: DatasetManifest = { ...parsed, entities: kept };
 
-  // Normalize each entity URL once (glob/hive detection) — the SAME normalizer
-  // the single-URL dialog uses, so behavior cannot fork between the two doors.
-  const targets = new Map<string, EntityTarget>(
-    kept.map((e) => {
-      const norm = normalizeRemoteParquetUrl(e.url);
-      return [
-        e.name,
-        {
-          name: e.name,
-          readUrl: norm.readUrl,
-          isHivePartitioned: Boolean(e.isHivePartitioned || norm.isHivePartitioned),
-          ...(e.sha256 ? { sha256: e.sha256 } : {}),
-        },
-      ];
-    })
-  );
-
-  const entities = new Map<string, EntityState>();
-  const ready = (entity: ManifestEntity, schema: CSVSchema, csvId: string): EntityState => ({
-    entity,
-    status: "ready",
-    csvId,
-    rowCount: schema.row_count,
-    columnCount: schema.columns.length,
+  // Cache pass then eager extraction, inside the budget — the SHARED
+  // materializer (ensure.ts), so a question that lazily materializes an entity
+  // later uses byte-identical cache keys, fingerprints and registration.
+  // On a runtime with no batch extractor every miss stays pending and the
+  // client (or MCP) drives per-entity extraction on first touch.
+  const { states, fromCache, skipped } = await materializeEntities({
+    entities: kept,
+    manifestHash,
+    ...(args.creds ? { creds: args.creds } : {}),
+    deps,
+    budgetMs: MANIFEST_EAGER_BUDGET_MS,
+    ...(args.force ? { force: true } : {}),
+    eagerCapable: deps.eagerCapable(),
   });
-
-  // 1. Cache pass — a reconnect (or a restart) should be cache hits, not
-  //    containers. `force` skips it and re-extracts everything eagerly reachable.
-  let fromCache = 0;
-  const misses: EntityTarget[] = [];
-  for (const e of kept) {
-    const t = targets.get(e.name)!;
-    const cached = args.force
-      ? null
-      : await deps.readCachedSchema(
-          entitySourceKey(t.readUrl, args.creds),
-          entityFingerprint(e, manifestHash)
-        );
-    if (cached) {
-      const csvId = deps.newId();
-      const schema = { ...cached, csv_id: csvId, filename: e.name };
-      deps.registerEntity(csvId, schema, t.readUrl, args.creds, t.isHivePartitioned);
-      entities.set(e.name, ready(e, schema, csvId));
-      fromCache++;
-    } else {
-      misses.push(t);
-    }
-  }
-
-  // 2. Eager pass, inside the budget. Only where the docker extractor exists —
-  //    on the built-in runtime every miss stays pending and the client drives
-  //    the existing per-entity two-hop extraction on first touch (P3 upgrades this).
-  let skipped: string[] = misses.map((t) => t.name);
-  if (misses.length > 0 && deps.eagerCapable()) {
-    const outcome = await deps.extractBatch(misses, args.creds, MANIFEST_EAGER_BUDGET_MS);
-    skipped = outcome.skipped;
-    for (const t of misses) {
-      const r = outcome.results.get(t.name);
-      if (!r) continue;
-      const e = kept.find((k) => k.name === t.name)!;
-      if ("schema" in r) {
-        const csvId = deps.newId();
-        const schema = { ...r.schema, csv_id: csvId, filename: e.name };
-        deps.registerEntity(csvId, schema, t.readUrl, args.creds, t.isHivePartitioned);
-        entities.set(t.name, ready(e, schema, csvId));
-        await deps
-          .writeCachedSchema(
-            entitySourceKey(t.readUrl, args.creds),
-            entityFingerprint(e, manifestHash),
-            r.schema
-          )
-          .catch(() => {}); // cache write is never fatal
-      } else {
-        entities.set(t.name, { entity: e, status: "failed", error: r.error });
-      }
-    }
-  }
+  const entities = new Map<string, EntityState>(states);
   for (const name of skipped) {
+    if (entities.has(name)) continue;
     const e = kept.find((k) => k.name === name)!;
     entities.set(name, { entity: e, status: "pending" });
   }

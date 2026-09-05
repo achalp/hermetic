@@ -157,6 +157,19 @@ describe("pickItemAsset", () => {
     expect(href).toBe(`${S3}/x.parquet`);
   });
 
+  it("prefers Azure Blob over a host with no listing — enumeration works there too", () => {
+    // Only the LISTABLE mirror keeps a multi-file collection alive; picking the
+    // plain-https asset would get the whole entity skipped.
+    expect(
+      pickItemAsset({
+        assets: {
+          mirror: { href: "https://files.example.org/x.parquet" },
+          azure: { href: `${AZ}/x.parquet`, type: "application/vnd.apache.parquet" },
+        },
+      })
+    ).toBe(`${AZ}/x.parquet`);
+  });
+
   it("falls back to the first parquet asset; ignores non-parquet and non-http", () => {
     expect(
       pickItemAsset({
@@ -331,31 +344,28 @@ describe("toS3Url", () => {
   });
 });
 
-describe("azure-only catalogs", () => {
-  it("SKIPS a multi-file collection with no S3 asset rather than truncating it", async () => {
-    const CAT2 = "https://stac.example.org";
+describe("multi-file collections on non-S3 hosts", () => {
+  const CAT2 = "https://stac.example.org";
+
+  /** A two-item collection whose only parquet asset lives at `href`. */
+  async function resolveWithAsset(href: string) {
     const col = {
       type: "Collection",
       stac_version: "1.1.0",
-      id: "azure-only",
+      id: "non-s3",
       links: [
-        { rel: "item", href: `${CAT2}/az/0.json` },
-        { rel: "item", href: `${CAT2}/az/1.json` },
+        { rel: "item", href: `${CAT2}/x/0.json` },
+        { rel: "item", href: `${CAT2}/x/1.json` },
       ],
     };
     const map: Record<string, unknown> = {
       [`${CAT2}/collection.json`]: col,
-      [`${CAT2}/az/0.json`]: {
+      [`${CAT2}/x/0.json`]: {
         type: "Feature",
-        assets: {
-          azure: {
-            href: "https://acct.blob.core.windows.net/data/part-0.parquet",
-            type: "application/vnd.apache.parquet",
-          },
-        },
+        assets: { data: { href, type: "application/vnd.apache.parquet" } },
       },
     };
-    const m = await resolveStacManifest(col, `${CAT2}/collection.json`, {
+    return resolveStacManifest(col, `${CAT2}/collection.json`, {
       fetchText: async (u: string) =>
         JSON.stringify(
           map[u] ??
@@ -364,6 +374,24 @@ describe("azure-only catalogs", () => {
             })()
         ),
     });
+  }
+
+  it("emits a directory glob for an Azure Blob collection — its container LISTS", async () => {
+    // Azure enumeration reads the https URL as written (no s3:// conversion),
+    // so the entity keeps the account host the egress allowlist derives from.
+    const m = await resolveWithAsset(
+      "https://acct.blob.core.windows.net/data/type=x/part-0.parquet"
+    );
+    expect(m.entities.map((e) => e.url)).toEqual([
+      "https://acct.blob.core.windows.net/data/type=x/*.parquet",
+    ]);
+  });
+
+  it("SKIPS a multi-file collection on a host with no listing rather than truncating it", async () => {
+    // A plain web host answers no listing, so the other files are unreachable.
+    // Emitting the ONE known file would answer confidently from partial data —
+    // the failure mode worse than no entity at all.
+    const m = await resolveWithAsset("https://files.example.org/data/part-0.parquet");
     expect(m.entities).toEqual([]);
   });
 });

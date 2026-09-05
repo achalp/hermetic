@@ -23,6 +23,7 @@ import {
   MAX_ENUMERATED_FILES,
   type S3Object,
 } from "./s3-list";
+import { parseListBlobs, splitAzurePrefix, type AzurePrefix } from "./azure-list";
 import { parquetToCsv } from "./wasm/parquet-convert";
 import type { RemoteCreds } from "@/lib/contracts/storage-types";
 
@@ -134,7 +135,10 @@ export async function materializeRemoteCsvForWasm(
  * Runs through the SAME authorization path as every other fetch: an S3 listing is
  * `GET /?list-type=2&prefix=…` on the bucket host, which is already on the run's
  * allowlist. No new verb, no new destination, no new capability — which is why
- * lifting the hive gate does not reopen the D20 parity argument.
+ * lifting the hive gate does not reopen the D20 parity argument. Azure Blob's
+ * "List Blobs" is the same ordinary GET on the account host, so it rides the same
+ * argument and returns the same `{host, objects}` — one shape for both clouds, so
+ * hive aliasing, footer prefetch and range tokens stay cloud-agnostic.
  *
  * Returns objects in listing order (lexicographic by key), so the resulting SQL
  * file list is deterministic across runs — goldens and caches depend on that.
@@ -145,8 +149,10 @@ export async function enumerateRemoteParquetFiles(
 ): Promise<{ host: string; objects: S3Object[] }> {
   const raw = stored.remoteParquetUrl;
   if (!raw) throw new Error("enumerate: no remote URL");
+  const azure = splitAzurePrefix(raw);
+  if (azure) return enumerateAzureBlobs(raw, azure, stored, opts);
   const split = splitS3Prefix(raw);
-  if (!split) throw new Error(`enumerate: not an s3:// source: ${raw}`);
+  if (!split) throw new Error(`enumerate: not an enumerable source (s3:// or Azure Blob): ${raw}`);
 
   const host = s3VhostHost(split.bucket, stored.remoteCreds);
   const allowlist = deriveAllowedEgressHosts(raw, stored.remoteCreds);
@@ -194,4 +200,80 @@ export async function enumerateRemoteParquetFiles(
     token = parsed.nextToken;
   }
   return { host, objects };
+}
+
+/**
+ * The Azure Blob half of {@link enumerateRemoteParquetFiles}. Same loop, same cap,
+ * same page bound, same egress core — only the request shape and the XML differ.
+ *
+ * Keys come back CONTAINER-QUALIFIED (`container/theme=x/part-0.parquet`) because
+ * every consumer of the returned pair builds `https://<host>/<key>`: for S3 the
+ * bucket is in the vhost, for Azure the container is the first path segment, so
+ * qualifying here is what makes one downstream URL builder correct for both. It
+ * also keeps the hive segments in the alias, which is where DuckDB derives
+ * partition columns from (see aliasForKey).
+ */
+async function enumerateAzureBlobs(
+  raw: string,
+  split: AzurePrefix,
+  stored: StoredRemote,
+  opts?: { binPath?: string; signal?: AbortSignal; maxFiles?: number }
+): Promise<{ host: string; objects: S3Object[] }> {
+  // A SAS-signed source is refused HERE rather than half-working: the listing
+  // could carry the token, but the per-file read URLs minted downstream cannot,
+  // so the run would enumerate happily and then 403 on every byte inside the
+  // worker. Failing at the boundary keeps the diagnosis where the cause is.
+  if (split.search) {
+    throw new Error(
+      "enumerate: Azure sources with a SAS/query are not supported for multi-file " +
+        "reads — the per-file reads cannot carry the token (use a public container)"
+    );
+  }
+  const allowlist = deriveAllowedEgressHosts(raw, stored.remoteCreds);
+  if (allowlist.length === 0)
+    throw new Error("enumerate: no allowlisted host (internal/unsupported)");
+
+  const cap = opts?.maxFiles ?? MAX_ENUMERATED_FILES;
+  const objects: S3Object[] = [];
+  let marker: string | undefined;
+
+  // <= 1 page per 1000 blobs; the ceiling below also bounds this loop.
+  for (let page = 0; page < Math.ceil(cap / 1000) + 1; page++) {
+    const qs = new URLSearchParams({
+      restype: "container",
+      comp: "list",
+      prefix: split.prefix,
+      maxresults: "1000",
+    });
+    if (marker) qs.set("marker", marker);
+    const url = `https://${split.host}/${split.container}?${qs.toString()}`;
+    const { body } = await fetchRemoteRange({
+      url,
+      allowlist,
+      // As on the S3 path: a listing has no meaningful range, so ask for a
+      // generous window and let the core's cap bound it. Azure ignores Range on
+      // a listing and answers 200, which fetchRemoteRange reports honestly.
+      range: "bytes=0-8388607",
+      capBytes: 8 * 1024 * 1024,
+      ...(opts?.binPath ? { binPath: opts.binPath } : {}),
+      ...(opts?.signal ? { signal: opts.signal } : {}),
+    });
+    const parsed = parseListBlobs(body.toString("utf8"));
+    objects.push(
+      ...parquetObjectsOnly(
+        parsed.objects.map((o) => ({ key: `${split.container}/${o.key}`, size: o.size }))
+      )
+    );
+    if (objects.length > cap) {
+      // Same refusal (and same wording) as the S3 path: a tree this big would
+      // mint thousands of tokens and build an unusable SQL list.
+      throw new Error(
+        `enumerate: source expands to more than ${cap} parquet files — refusing ` +
+          `(narrow the source, or use the Docker runtime which scans server-side)`
+      );
+    }
+    if (!parsed.nextMarker) return { host: split.host, objects };
+    marker = parsed.nextMarker;
+  }
+  return { host: split.host, objects };
 }
