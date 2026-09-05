@@ -98,7 +98,7 @@ jobs:
             docker push "$IMAGE:latest"
           fi
       - name: Attest image build provenance
-        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-name: ${{ steps.push.outputs.image }}
           subject-digest: ${{ steps.push.outputs.digest }}
@@ -152,7 +152,7 @@ jobs:
           mkdir -p "dist/egress-bins/${{ matrix.id }}"
           cp "rust/egress-core/target/release/$BIN" "dist/egress-bins/${{ matrix.id }}/$BIN"
       - name: Attest bin build provenance
-        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: dist/egress-bins/${{ matrix.id }}/*
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -201,7 +201,7 @@ jobs:
         env:
           HERMETIC_MCPB_REQUIRE_ALL_BINS: "1"
       - name: Attest bundle build provenance
-        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: hermetic.mcpb
       - name: Create release with the attested, checksummed bundle attached
@@ -334,7 +334,7 @@ jobs:
           HERMETIC_EGRESS_FETCH_PREBUILT: dist/egress-bins/${{ matrix.binId }}/egress-fetch${{ startsWith(matrix.binId, 'win32') && '.exe' || '' }}
         run: node scripts/build-desktop.mjs
       - name: Attest bundle build provenance
-        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: ${{ matrix.attest }}
       - name: Upload bundles
