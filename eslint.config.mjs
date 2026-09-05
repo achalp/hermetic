@@ -16,6 +16,18 @@ const eslintConfig = defineConfig([
     // .mcpb bundle assembly (release-path phase 2).
     "src/mcp/viewer/dist/**",
     "dist/**",
+    // Desktop build outputs: the assembled sidecar carries its own .next +
+    // node_modules copy (~600MB of compiled chunks) — walking it SIGABRTs
+    // eslint on any machine that has run a desktop build or sidecar smoke.
+    "src-tauri/sidecar/**",
+    "src-tauri/target/**",
+    "rust/**/target/**",
+    // More gitignored outputs a dev machine accumulates (CI checkouts never
+    // have them, which is why bare `eslint` only broke locally): coverage
+    // HTML, the built DuckDB browser bundle, playwright artifacts.
+    "coverage/**",
+    "public/duckdb-wasm/**",
+    "playwright-report/**",
   ]),
   {
     // React Compiler / strict-React rules added in eslint-plugin-react-hooks

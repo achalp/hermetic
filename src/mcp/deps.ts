@@ -283,17 +283,19 @@ export function realDeps(): McpDeps {
         deps: manifestMaterializeDeps(),
         budgetMs: MANIFEST_EAGER_BUDGET_MS,
         eagerCapable: getActiveSandboxRuntime() === "docker",
-        // wasm fallback: the SAME single-entity extractor the url door uses,
-        // so MCP manifests work on the built-in runtime (no Docker, no client).
-        extractOne: (target, creds, csvId, filename) =>
-          extractRemoteParquetSchema(
-            target.readUrl,
-            csvId,
-            filename,
-            getActiveSandboxRuntime(),
-            target.isHivePartitioned,
-            creds
-          ),
+        // Off Docker there is NO server-side remote introspection: the built-in
+        // (wasm) runtime extracts cloud schemas in the app's BROWSER worker
+        // (spec §4 Option B), and the MCP server has no browser. Wiring
+        // extractRemoteParquetSchema here would hit its off-docker wiring-bug
+        // throw with a message aimed at developers. So the fallback exists to
+        // give each entity an HONEST, actionable reason instead of the generic
+        // budget wording — supporting less fully rather than failing obscurely.
+        extractOne: async () => {
+          throw new Error(
+            "needs the Docker runtime — the built-in (WASM) runtime introspects cloud " +
+              "Parquet in the hermetic app's browser, which the MCP server does not have"
+          );
+        },
       }),
     // Live getters, not a boot-time snapshot: the MCP server has no
     // localStorage, so the Settings UI's model choice reaches it through

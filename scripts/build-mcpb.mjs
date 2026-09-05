@@ -28,6 +28,7 @@
 import { build } from "esbuild";
 import { execFileSync } from "node:child_process";
 import {
+  chmodSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -38,6 +39,14 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+// Shared layout (runs under tsx — see package.json mcpb:build): the SAME
+// module mcpb-main.ts resolves the bin from at boot, so writer and reader
+// cannot drift.
+import {
+  EGRESS_BIN_PLATFORMS,
+  egressBinFilename,
+  egressBinPlatform,
+} from "@/lib/release/egress-bin-layout";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -197,6 +206,69 @@ if (missing.length > 0 && process.env.HERMETIC_MCPB_KEYRING_HOST_ONLY !== "1") {
       `keychain support there. Re-run with network access, or set ` +
       `HERMETIC_MCPB_KEYRING_HOST_ONLY=1 to accept a host-platform-only bundle.`
   );
+}
+
+// ── 2b. Vendor the DuckDB-WASM node engine (eh bundle only) ──────────
+// host-duckdb.ts (the in-process engine behind local-parquet connect on the
+// built-in runtime) resolves `@duckdb/duckdb-wasm/dist/*` from assetRoot.
+// Only the eh bundle ships: the mvp module is 41 MB of fallback for
+// pre-wasm-exception-handling engines no supported Node needs, and
+// availableDuckDbBundles() filters by what exists. Always vendored (source is
+// the checkout's own node_modules), so every .mcpb can connect local parquet
+// without Docker.
+// Located on disk, not require.resolve()'d: the package's exports map does
+// not expose ./package.json (same situation as @anthropic-ai/mcpb below).
+const duckdbPkgDir = join(ROOT, "node_modules", "@duckdb", "duckdb-wasm");
+const duckdbDest = join(OUT, "node_modules", "@duckdb", "duckdb-wasm");
+mkdirSync(join(duckdbDest, "dist"), { recursive: true });
+cpSync(join(duckdbPkgDir, "package.json"), join(duckdbDest, "package.json"));
+for (const f of ["duckdb-node-blocking.cjs", "duckdb-node-eh.worker.cjs", "duckdb-eh.wasm"]) {
+  cpSync(join(duckdbPkgDir, "dist", f), join(duckdbDest, "dist", f), { dereference: true });
+}
+console.error("duckdb-wasm node engine vendored (eh bundle)");
+
+// ── 2c. Vendor the egress-fetch binaries (per platform) ──────────────
+// The Rust host-side remote-read edge (manifest fetch, S3 listing, ranged
+// reads). CI's egress-bins job stages one native build per platform under
+// dist/egress-bins/<platform-arch>/; a local dev build falls back to the
+// checkout's own cargo output for the HOST platform only (that bundle then
+// works on this machine alone — loudly noted). Release builds set
+// HERMETIC_MCPB_REQUIRE_ALL_BINS=1 so a missing platform fails the build
+// instead of shipping a bundle that quietly lacks manifests there.
+const BIN_SRC = process.env.HERMETIC_EGRESS_BINS_DIR ?? join(ROOT, "dist", "egress-bins");
+const binsVendored = [];
+const binsMissing = [];
+for (const id of EGRESS_BIN_PLATFORMS) {
+  const name = egressBinFilename(id);
+  const src = join(BIN_SRC, id, name);
+  let from = existsSync(src) ? src : null;
+  if (!from && id === egressBinPlatform(process.platform, process.arch)) {
+    for (const profile of ["release", "debug"]) {
+      const local = join(ROOT, "rust", "egress-core", "target", profile, name);
+      if (existsSync(local)) {
+        from = local;
+        console.error(`! egress-fetch ${id}: using local cargo ${profile} build (dev fallback)`);
+        break;
+      }
+    }
+  }
+  if (!from) {
+    binsMissing.push(id);
+    continue;
+  }
+  const dest = join(OUT, "bin", id, name);
+  mkdirSync(dirname(dest), { recursive: true });
+  cpSync(from, dest, { dereference: true });
+  if (!id.startsWith("win32")) chmodSync(dest, 0o755);
+  binsVendored.push(id);
+}
+console.error(`egress-fetch vendored: ${binsVendored.join(", ") || "(none)"}`);
+if (binsMissing.length > 0) {
+  const msg =
+    `egress-fetch bins missing for: ${binsMissing.join(", ")} — those installs get no ` +
+    `manifest support and no wasm-runtime remote reads.`;
+  if (process.env.HERMETIC_MCPB_REQUIRE_ALL_BINS === "1") fail(msg);
+  console.error(`! ${msg} (dev bundle — release builds require all)`);
 }
 
 // ── 3. Viewer + sandbox runtime assets ───────────────────────────────

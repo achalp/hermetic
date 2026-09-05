@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { existsSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { harnessSlot, envConfig } from "@/lib/harness-slot";
 
@@ -86,12 +87,22 @@ export const hermeticPaths = {
   sandboxEgressProxyFile: () => join(roots().assetRoot, "docker", "sandbox", "egress-proxy.py"),
   /**
    * The Rust `egress-fetch` binary (build log D9) — the host-side remote-read edge
-   * for the WASM runtime. Production (Tauri) sets HERMETIC_EGRESS_FETCH_BIN to the
-   * bundled binary; dev falls back to the cargo build output (debug).
+   * (manifest fetch, S3 listing, ranged wasm reads). Production (Tauri sidecar,
+   * .mcpb entry) sets HERMETIC_EGRESS_FETCH_BIN to the bundled binary; a checkout
+   * falls back to the cargo build output, preferring release (what
+   * `pnpm desktop:build` produces) over debug so a machine that has built the
+   * desktop app never runs the stale slow bin. The one existsSync here is the
+   * price of that preference; when neither exists the debug path is returned so
+   * the eventual spawn error names a real, actionable location.
    */
-  egressFetchBin: () =>
-    envConfig().HERMETIC_EGRESS_FETCH_BIN ??
-    join(roots().assetRoot, "rust", "egress-core", "target", "debug", "egress-fetch"),
+  egressFetchBin: () => {
+    const pinned = envConfig().HERMETIC_EGRESS_FETCH_BIN;
+    if (pinned) return pinned;
+    const name = process.platform === "win32" ? "egress-fetch.exe" : "egress-fetch";
+    const target = join(roots().assetRoot, "rust", "egress-core", "target");
+    const release = join(target, "release", name);
+    return existsSync(release) ? release : join(target, "debug", name);
+  },
   /**
    * The Pyodide distribution served at `/pyodide/*` for the WASM worker (build log
    * D15). Production (Tauri) sets HERMETIC_PYODIDE_DIR to the bundled dist; dev

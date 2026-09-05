@@ -13,9 +13,12 @@
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { EGRESS_BIN_PLATFORMS, bundledEgressBinRelPath } from "@/lib/release/egress-bin-layout";
 
 const ROOT = resolve(new URL("..", import.meta.url).pathname);
 const BUNDLE = join(ROOT, "dist", "mcpb");
@@ -46,6 +49,68 @@ if (manifest.version !== pkg.version)
   fail(`manifest version ${manifest.version} != ${pkg.version}`);
 if (manifest.server.entry_point !== "server.js") fail("manifest entry_point drifted");
 console.error(`✔ bundle shape ok (manifest ${manifest.name}@${manifest.version})`);
+
+// 1b. The vendored DuckDB node engine actually BOOTS from the bundle with the
+// pruned (eh-only) dist — the exact assets host-duckdb resolves at runtime.
+for (const f of [
+  "node_modules/@duckdb/duckdb-wasm/package.json",
+  "node_modules/@duckdb/duckdb-wasm/dist/duckdb-node-blocking.cjs",
+  "node_modules/@duckdb/duckdb-wasm/dist/duckdb-node-eh.worker.cjs",
+  "node_modules/@duckdb/duckdb-wasm/dist/duckdb-eh.wasm",
+]) {
+  if (!existsSync(join(BUNDLE, f))) fail(`bundle asset missing: ${f}`);
+}
+{
+  const req = createRequire(join(BUNDLE, "server.js"));
+  const duckdb = req("@duckdb/duckdb-wasm/dist/duckdb-node-blocking.cjs");
+  const dist = join(BUNDLE, "node_modules", "@duckdb", "duckdb-wasm", "dist");
+  const db = await duckdb.createDuckDB(
+    {
+      eh: {
+        mainModule: join(dist, "duckdb-eh.wasm"),
+        mainWorker: join(dist, "duckdb-node-eh.worker.cjs"),
+      },
+    },
+    new duckdb.VoidLogger(),
+    duckdb.NODE_RUNTIME
+  );
+  await db.instantiate();
+  const rows = db
+    .connect()
+    .query("SELECT 42 AS x")
+    .toArray()
+    .map((r) => r.toJSON());
+  if (rows[0]?.x !== 42) fail(`vendored duckdb answered wrong: ${JSON.stringify(rows)}`);
+  console.error("✔ vendored duckdb-wasm node engine boots (eh-only) and answers");
+}
+
+// 1c. Egress-fetch bins: whatever platforms the bundle claims must be REAL
+// files, and the host platform's bin must actually spawn (a no-arg run exits
+// nonzero with usage — ENOENT/EACCES here means a broken vendor).
+{
+  const vendored = EGRESS_BIN_PLATFORMS.filter((id) =>
+    existsSync(join(BUNDLE, ...bundledEgressBinRelPath(...id.split("-")).split("/")))
+  );
+  const requireAll = process.env.HERMETIC_MCPB_REQUIRE_ALL_BINS === "1";
+  if (requireAll && vendored.length !== EGRESS_BIN_PLATFORMS.length) {
+    fail(
+      `egress-fetch bins incomplete: have [${vendored.join(", ")}], ` +
+        `want [${EGRESS_BIN_PLATFORMS.join(", ")}]`
+    );
+  }
+  const hostRel = bundledEgressBinRelPath(process.platform, process.arch);
+  const hostBin = hostRel ? join(BUNDLE, ...hostRel.split("/")) : null;
+  if (hostBin && existsSync(hostBin)) {
+    const run = spawnSync(hostBin, [], { timeout: 10_000 });
+    if (run.error) fail(`host egress-fetch bin does not spawn: ${run.error.message}`);
+    if (run.status === 0) fail("egress-fetch with no args exited 0 — wrong binary?");
+    console.error(`✔ egress-fetch bins: ${vendored.join(", ")} (host bin spawns)`);
+  } else if (requireAll) {
+    fail("host platform egress-fetch bin missing under REQUIRE_ALL");
+  } else {
+    console.error(`! egress-fetch host bin not vendored (dev bundle) — spawn check skipped`);
+  }
+}
 
 // 2. Handshake — spawn from a NEUTRAL cwd so any lingering cwd-anchored path
 // would break here instead of on a user's machine.

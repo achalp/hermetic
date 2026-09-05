@@ -161,9 +161,31 @@ introspection is cached on disk under the same keys the web app uses, so
 work done in either door is shared.
 
 The manifest itself is fetched through the Rust egress core (allowlist,
-internal-IP rejection, byte cap) — the checkout builds that binary
-(`cargo build` in `rust/egress-core`); the `.mcpb` bundle does not ship it
-yet, so manifest urls are a **checkout-run feature** for now.
+internal-IP rejection, byte cap). The checkout builds that binary
+(`cargo build` in `rust/egress-core`; the release profile is preferred when
+present), and the `.mcpb` vendors a prebuilt one per platform
+(linux x64/arm64, macOS x64/arm64, Windows x64) — resolved at boot, user
+`HERMETIC_EGRESS_FETCH_BIN` override wins.
+
+## What works where (by sandbox runtime)
+
+The MCP server is the same code in a checkout and in the `.mcpb`; the real
+axis is the sandbox runtime. **With Docker** everything works everywhere.
+**Without Docker** (the built-in wasm runtime), the boundaries below are
+deliberate architecture, not packaging gaps: wasm _execution_ and cloud
+_introspection_ run in the hermetic app's browser-sandboxed worker (that CSP
+boundary is the isolation proof), and an MCP server has no browser.
+
+| MCP capability, wasm runtime            | Works? | Why                                                                |
+| --------------------------------------- | ------ | ------------------------------------------------------------------ |
+| Local CSV/Excel/GeoJSON                 | ✔      | no sandbox needed to connect; `run_analysis`/`analyze` need Docker |
+| Local Parquet connect + schema          | ✔      | in-process DuckDB engine (vendored in the `.mcpb`, eh bundle)      |
+| Manifest / STAC connect + entity index  | ✔      | fetched host-side through the egress core binary                   |
+| Cloud Parquet / manifest-entity schemas | ✖      | introspection runs in the app's browser worker — use Docker        |
+| `analyze` (Python execution)            | ✖      | execution runs in the app's browser worker — use Docker            |
+
+Every ✖ is a clean, named refusal pointing at Docker — never a silent
+degrade (the capability gate rejects rather than weakens isolation).
 
 ## Cloud sources and credentials
 

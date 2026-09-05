@@ -23,6 +23,8 @@
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import {
+  chmodSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -41,10 +43,25 @@ const run = (cmd, args, opts = {}) => {
   execFileSync(cmd, args, { cwd: ROOT, stdio: "inherit", shell: WIN && cmd === "pnpm", ...opts });
 };
 
-console.log("[desktop] 1/3 building egress-fetch (release)…");
-run("cargo", ["build", "--release", "--locked", "--bin", "egress-fetch"], {
-  cwd: resolve(ROOT, "rust", "egress-core"),
-});
+// HERMETIC_EGRESS_FETCH_PREBUILT: a release-profile bin built elsewhere (CI's
+// egress-bins job builds one per platform and every desktop leg reuses it —
+// one cargo build per platform per release, not two). Copied into the cargo
+// release dir so the sidecar assembler's existing picker finds it unchanged.
+const prebuilt = process.env.HERMETIC_EGRESS_FETCH_PREBUILT;
+const binName = process.platform === "win32" ? "egress-fetch.exe" : "egress-fetch";
+if (prebuilt && existsSync(prebuilt)) {
+  console.log(`[desktop] 1/3 egress-fetch: reusing prebuilt ${prebuilt}`);
+  const releaseDir = resolve(ROOT, "rust", "egress-core", "target", "release");
+  mkdirSync(releaseDir, { recursive: true });
+  copyFileSync(prebuilt, join(releaseDir, binName));
+  if (process.platform !== "win32") chmodSync(join(releaseDir, binName), 0o755);
+} else {
+  if (prebuilt) console.log(`[desktop] WARN prebuilt not found (${prebuilt}) — building`);
+  console.log("[desktop] 1/3 building egress-fetch (release)…");
+  run("cargo", ["build", "--release", "--locked", "--bin", "egress-fetch"], {
+    cwd: resolve(ROOT, "rust", "egress-core"),
+  });
+}
 
 console.log("[desktop] 2/3 tauri build (assembles the sidecar, bundles the app)…");
 // Tauri's resource staging is copy-only — files DELETED from src-tauri/sidecar
