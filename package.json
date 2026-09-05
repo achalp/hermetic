@@ -105,7 +105,7 @@
     "hive-driver": "^1.0.0",
     "html-to-image": "^1.11.13",
     "jspdf": "^4.2.0",
-    "maplibre-gl": "^6.5.0",
+    "maplibre-gl": "^6.7.0",
     "microsandbox": "^0.1.1",
     "next": "16.2.12",
     "papaparse": "^5.5.3",
