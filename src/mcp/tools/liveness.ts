@@ -22,7 +22,10 @@ import { McpToolError } from "../errors";
  * (review fix: compile-checked narrowing at the consumption site) so test
  * fakes only have to supply the members a tool actually reads.
  */
-export type LivenessDeps = Pick<McpDeps, "getWarehouseState" | "getStoredCSV">;
+export type LivenessDeps = Pick<
+  McpDeps,
+  "getWarehouseState" | "getStoredCSV" | "getManifestRecord"
+>;
 
 const IDLE_HOURS = Math.round(CSV_TTL_MS / (60 * 60 * 1000));
 
@@ -30,13 +33,17 @@ export function assertSourceLive(deps: LivenessDeps, source: McpSource): void {
   const live =
     source.kind === "warehouse"
       ? !!deps.getWarehouseState(source.id)
-      : !!deps.getStoredCSV(source.csvId);
+      : source.kind === "manifest"
+        ? !!deps.getManifestRecord?.(source.manifestId)
+        : !!deps.getStoredCSV(source.csvId);
   if (live) return;
 
   const what =
     source.kind === "warehouse"
       ? `The warehouse connection "${source.label}" was closed after ${IDLE_HOURS}h idle`
-      : `The data for "${source.label}" is no longer in hermetic's store (the server restarted since it was attached)`;
+      : source.kind === "manifest"
+        ? `The manifest "${source.label}" is no longer in hermetic's store (the server restarted since it was attached)`
+        : `The data for "${source.label}" is no longer in hermetic's store (the server restarted since it was attached)`;
 
   throw new McpToolError(
     "source_expired",

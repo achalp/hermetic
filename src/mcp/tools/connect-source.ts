@@ -40,6 +40,7 @@ import { isPathAllowed, PATH_NOT_ALLOWED_ERROR } from "@/lib/local-files/securit
 import { summarizeSource } from "./get-schema";
 import { withToolLog } from "./log";
 import { IngestError, type IngestResult } from "@/lib/sources/ingest";
+import { isManifestUrl, ManifestError } from "@/lib/manifest/shared";
 import type { RemoteCreds } from "@/lib/contracts/storage-types";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { WarehouseTableInfo, WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
@@ -57,8 +58,10 @@ export const connectSourceInput = {
     .optional()
     .describe(
       "Cloud Parquet URL (s3://, https://, gs://): a file, folder, or Hive-partitioned " +
-        "prefix. Read over the network — nothing is downloaded. Private buckets use the " +
-        "server's AWS_* environment, never tool arguments."
+        "prefix. A `.json` URL is treated as a dataset MANIFEST (datapackage, croissant, " +
+        "files array, or STAC catalog) — it attaches as one source whose entities analyze " +
+        "selects from per question. Read over the network — nothing is downloaded. " +
+        "Private buckets use the server's AWS_* environment, never tool arguments."
     ),
   connection_id: z
     .string()
@@ -79,6 +82,41 @@ export function envRemoteCreds(env: NodeJS.ProcessEnv = process.env): RemoteCred
   if (env.AWS_SECRET_ACCESS_KEY) creds.s3SecretAccessKey = env.AWS_SECRET_ACCESS_KEY;
   if (env.AWS_ENDPOINT_URL) creds.s3Endpoint = env.AWS_ENDPOINT_URL;
   return Object.keys(creds).length > 0 ? creds : undefined;
+}
+
+/**
+ * Manifest detection — the SAME predicate the web door and the fetch gate use
+ * (lib/manifest/shared isManifestUrl: a `.json`/`.jsonld` path is a dataset
+ * manifest / STAC catalog, everything else is Parquet). Re-exported under a
+ * name that says what connect_source does with it; one predicate, no drift.
+ */
+export { isManifestUrl as looksLikeManifestUrl };
+
+async function connectManifestUrl(deps: McpDeps, url: string, label?: string): Promise<McpSource> {
+  if (!deps.connectManifest) {
+    throw new McpToolError(
+      "invalid_input",
+      "Dataset manifests are not supported by this server build."
+    );
+  }
+  const creds = envRemoteCreds();
+  let record;
+  try {
+    record = await deps.connectManifest({ url, ...(creds ? { creds } : {}) });
+  } catch (err) {
+    // ManifestErrors are already phrased for a person (bad URL, oversized
+    // document, no readable entities) — map them into the MCP taxonomy at
+    // this boundary, like IngestError on the path branch.
+    if (err instanceof ManifestError) throw new McpToolError("invalid_input", err.message);
+    throw err;
+  }
+  const title = record.manifest.title;
+  return registerSource({
+    kind: "manifest",
+    label: label ?? title ?? filenameFromUrl(url),
+    manifestId: record.manifestId,
+    origin: { via: "url", url },
+  });
 }
 
 /** A human filename from a Parquet URL: the last path segment, or the host. */
@@ -287,7 +325,10 @@ async function connectSourceImpl(
 
   let source: McpSource;
   if (args.url) {
-    source = await connectUrl(deps, args.url.trim(), args.label);
+    const url = args.url.trim();
+    source = isManifestUrl(url)
+      ? await connectManifestUrl(deps, url, args.label)
+      : await connectUrl(deps, url, args.label);
   } else if (args.path) {
     const connected = await connectPath(deps, resolve(args.path), args.sheet, args.label);
     if ("needs_sheet" in connected) return connected as Record<string, unknown>;
@@ -301,7 +342,13 @@ async function connectSourceImpl(
   // source_id the host still holds. Best-effort — never fails the connect.
   if (source.kind === "csv") void persistSources(deps);
 
-  const summary: Record<string, unknown> = { source_id: source.id, ...summarizeSource(source) };
+  const summary: Record<string, unknown> = {
+    source_id: source.id,
+    ...summarizeSource(
+      source,
+      source.kind === "manifest" ? deps.getManifestRecord?.(source.manifestId) : undefined
+    ),
+  };
   // Additive: the join graph rides the connect response too, so a host can
   // plan SQL without a second call.
   if (source.kind === "warehouse" && source.relationships) {

@@ -311,9 +311,10 @@ export function buildMcpServer(deps: McpDeps, audit: AuditSink): McpServer {
         "Attach a data source and get a source_id plus a schema summary. Accepts: `path` " +
         "(local .csv, .xlsx [use `sheet` for multi-sheet], GeoJSON, .parquet file, or " +
         "Parquet folder), `url` (cloud Parquet — s3://, https://, gs://, incl. " +
-        "Hive-partitioned prefixes), or `connection_id` (saved warehouse). Data never " +
-        "leaves the machine; responses carry schema and statistics only, never raw rows " +
-        "or credentials.",
+        "Hive-partitioned prefixes; a `.json` url attaches a dataset MANIFEST or STAC " +
+        "catalog as one multi-entity source), or `connection_id` (saved warehouse). Data " +
+        "never leaves the machine; responses carry schema and statistics only, never raw " +
+        "rows or credentials.",
       inputSchema: connectSourceInput,
     },
     withAudit(audit, "connect_source", (args) => connectSource(deps, args))
@@ -327,10 +328,11 @@ export function buildMcpServer(deps: McpDeps, audit: AuditSink): McpServer {
         "sources return aggregate stats (ranges, means, distinct/top values), detected " +
         "domain, and correlations — use it instead of sampling rows. WAREHOUSE sources " +
         "return table and column names/types only (no stats); to characterize warehouse " +
-        "data, aggregate it with run_sql rather than SELECTing rows.",
+        "data, aggregate it with run_sql rather than SELECTing rows. MANIFEST sources " +
+        "return the entity list (analyze introspects entities on demand).",
       inputSchema: getSchemaInput,
     },
-    withAudit(audit, "get_schema", (args) => getSchema(args))
+    withAudit(audit, "get_schema", (args) => getSchema(deps, args))
   );
 
   server.registerTool(

@@ -10,8 +10,11 @@
  */
 import { z } from "zod";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
+import type { ManifestRecord } from "@/lib/manifest/store";
+import type { McpDeps } from "../deps";
 import { getSource, capabilitiesOf, type McpSource } from "../sources";
-import { unknownSource } from "../errors";
+import { unknownSource, McpToolError } from "../errors";
+import { reattachHint } from "../sources";
 import { withToolLog } from "./log";
 
 export const getSchemaInput = {
@@ -40,10 +43,65 @@ function summarizeCsvSchema(schema: CSVSchema) {
   };
 }
 
-export function summarizeSource(source: McpSource): Record<string, unknown> {
+const MAX_ENTITIES = 50;
+const MAX_ENTITY_COLUMNS = 40;
+
+/**
+ * The manifest summary: the entity index (names, descriptions, hints — what
+ * the selection pre-step reads) plus compact columns for READY entities.
+ * Pending entities show as pending — analyze materializes what a question
+ * needs, so the host never has to drive extraction itself.
+ */
+export function summarizeManifest(record: ManifestRecord): Record<string, unknown> {
+  const entities = [...record.entities.values()];
+  return {
+    format: record.manifest.format,
+    ...(record.manifest.title ? { title: record.manifest.title } : {}),
+    ...(record.manifest.description ? { description: record.manifest.description } : {}),
+    entity_count: entities.length,
+    entities: entities.slice(0, MAX_ENTITIES).map((s) => ({
+      name: s.entity.name,
+      ...(s.entity.description ? { description: s.entity.description } : {}),
+      status: s.status,
+      ...(s.rowCount !== undefined
+        ? { row_count: s.rowCount, row_count_is_exact: true }
+        : s.entity.rowCountHint !== undefined
+          ? { row_count: s.entity.rowCountHint, row_count_is_exact: false }
+          : {}),
+      ...(s.columnCount !== undefined ? { column_count: s.columnCount } : {}),
+      ...(s.error ? { error: s.error } : {}),
+      ...(s.status === "ready" && s.csvId
+        ? {}
+        : s.entity.columnDocs?.length
+          ? {
+              // Pre-introspection vocabulary from the manifest itself.
+              column_names: s.entity.columnDocs.slice(0, MAX_ENTITY_COLUMNS).map((c) => c.name),
+            }
+          : {}),
+    })),
+    truncated_entities: Math.max(0, entities.length - MAX_ENTITIES),
+    excluded_count: record.excluded.length,
+    hint:
+      "Call analyze with a question — it selects the relevant entities, introspects " +
+      "them on demand, and can join across entities in one run.",
+  };
+}
+
+export function summarizeSource(
+  source: McpSource,
+  manifestRecord?: ManifestRecord
+): Record<string, unknown> {
   // Capabilities travel with EVERY source summary so the host can pick its
   // next tool without probing (review S1/S2).
   const caps = capabilitiesOf(source);
+  if (source.kind === "manifest") {
+    return {
+      kind: "manifest",
+      label: source.label,
+      ...caps,
+      ...(manifestRecord ? summarizeManifest(manifestRecord) : {}),
+    };
+  }
   if (source.kind === "csv") {
     return {
       kind: "csv",
@@ -89,10 +147,27 @@ export function summarizeSource(source: McpSource): Record<string, unknown> {
   };
 }
 
-export async function getSchema(args: { source_id: string }): Promise<Record<string, unknown>> {
+/** The McpDeps slice get_schema needs (manifest sources read the live record). */
+export type GetSchemaDeps = Pick<McpDeps, "getManifestRecord">;
+
+export async function getSchema(
+  deps: GetSchemaDeps,
+  args: { source_id: string }
+): Promise<Record<string, unknown>> {
   return withToolLog("get_schema", { source_id: args.source_id }, async () => {
     const source = getSource(args.source_id);
     if (!source) throw unknownSource(args.source_id);
+    if (source.kind === "manifest") {
+      const record = deps.getManifestRecord?.(source.manifestId);
+      if (!record) {
+        throw new McpToolError(
+          "source_expired",
+          `The manifest "${source.label}" is no longer in hermetic's store (the server ` +
+            `restarted since it was attached). ${reattachHint(source.origin)}`
+        );
+      }
+      return { source_id: source.id, ...summarizeSource(source, record) };
+    }
     return { source_id: source.id, ...summarizeSource(source) };
   });
 }

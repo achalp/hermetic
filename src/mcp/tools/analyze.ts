@@ -39,6 +39,9 @@ export type AnalyzeDeps = Pick<
   | "assembleSpecFromPatches"
   | "persistHistoryEntry"
   | "getCachedArtifacts"
+  | "getManifestRecord"
+  | "selectManifestEntities"
+  | "ensureManifestEntitiesReady"
   | "models"
 >;
 
@@ -333,7 +336,42 @@ async function runAnalyze(
   // Build the discriminated source runAskQuery takes (validate-request's
   // union — the same narrowing the HTTP routes get from resolveQuerySources).
   let analysisSource: ResolvedAnalysisSource;
-  if (source.kind === "warehouse") {
+  // Set for manifest sources: rides context.manifest into runAskQuery, which
+  // already speaks the multi-entity shape (spec §7) — no pipeline changes.
+  let manifestQuestion:
+    { manifest_id: string; entities: { name: string; csv_id: string }[] } | undefined;
+  if (source.kind === "manifest") {
+    const record = deps.getManifestRecord?.(source.manifestId);
+    if (!record || !deps.selectManifestEntities || !deps.ensureManifestEntitiesReady) {
+      // assertSourceLive proved the record exists; a missing seam is a build
+      // that never supported manifests — same actionable wording either way.
+      throw new McpToolError(
+        "source_expired",
+        `The manifest "${source.label}" is not usable here. ${reattachHint(source.origin)}`
+      );
+    }
+    // Selection pre-step (question-dependent, never cached — the scanWindow
+    // lesson), then on-demand materialization of exactly the picked entities.
+    onProgress?.({ stage: "selecting entities" });
+    const { entities: picked } = await deps.selectManifestEntities(record, args.question);
+    onProgress?.({ stage: "preparing entities", detail: picked.join(", ") });
+    const { ready, unavailable } = await deps.ensureManifestEntitiesReady(record, picked);
+    if (ready.length === 0) {
+      const reasons =
+        unavailable.map((u) => `${u.name}: ${u.reason}`).join("; ") || "nothing was selected";
+      throw new McpToolError(
+        "execution_failed",
+        `No manifest entity could be prepared for this question — ${reasons}`
+      );
+    }
+    manifestQuestion = {
+      manifest_id: record.manifestId,
+      entities: ready.map((r) => ({ name: r.name, csv_id: r.csvId })),
+    };
+    // The PRIMARY entity drives the pipeline's csvId plumbing (resolver
+    // enforces primary === request csvId).
+    analysisSource = { kind: "csv", csvId: ready[0]!.csvId };
+  } else if (source.kind === "warehouse") {
     const warehouseState = deps.getWarehouseState(source.id);
     if (!warehouseState) {
       // assertSourceLive just proved liveness; a vanish between the two
@@ -352,7 +390,12 @@ async function runAnalyze(
   // Mutable by contract: warehouse runs materialize under a NEW csvId
   // reported mid-stream; history must persist under that id.
   const runState = {
-    csvId: source.kind === "csv" ? source.csvId : undefined,
+    csvId:
+      source.kind === "csv"
+        ? source.csvId
+        : manifestQuestion
+          ? manifestQuestion.entities[0]!.csv_id
+          : undefined,
     question: args.question,
   };
 
@@ -408,7 +451,11 @@ async function runAnalyze(
       },
       async (stream) => {
         await deps.runAskQuery({
-          context: { purpose: args.purpose ?? "dashboard", composer_sight: args.composer_sight },
+          context: {
+            purpose: args.purpose ?? "dashboard",
+            composer_sight: args.composer_sight,
+            ...(manifestQuestion ? { manifest: manifestQuestion } : {}),
+          },
           question: args.question,
           source: analysisSource,
           codeGenModel: deps.models.codeGen,
