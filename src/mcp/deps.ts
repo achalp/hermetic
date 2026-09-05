@@ -44,9 +44,24 @@ import { parseGeoJSON, isGeoJSONObject } from "@/lib/geojson/parser";
 import { toCSVText } from "@/lib/csv/parser";
 import { ingestFile, makeIngest, type IngestFn } from "@/lib/sources/ingest";
 import { introspectWithCache } from "@/lib/warehouse/introspect";
+import { randomUUID } from "node:crypto";
+import { generateText } from "ai";
+import { connectDatasetManifest } from "@/lib/manifest/connect";
+import { ensureManifestEntities, type MaterializeDeps } from "@/lib/manifest/ensure";
+import { fetchManifestText } from "@/lib/manifest/fetch";
+import { getManifestStore, type ManifestRecord } from "@/lib/manifest/store";
+import { buildSelectionPrompt, parseSelection } from "@/lib/manifest/select";
+import { MANIFEST_EAGER_BUDGET_MS } from "@/lib/manifest/shared";
+import { extractRemoteParquetSchemaBatch } from "@/lib/parquet/schema-extractor";
+import { readSchemaCache, writeSchemaCache } from "@/lib/schema-cache";
+import { getModel } from "@/lib/llm/client";
+import { trackRouteCost } from "@/lib/cost/epilogue";
+import { logger, errMessage } from "@/lib/logger";
 
 import { getActiveModels } from "@/lib/runtime-config";
 import type { WarehouseState } from "@/lib/pipeline/validate-request";
+import type { RemoteCreds } from "@/lib/contracts/storage-types";
+import type { CSVSchema as CSVSchemaT } from "@/lib/contracts/data-schema";
 
 export interface McpDeps {
   parseCSV: typeof parseCSV;
@@ -103,6 +118,27 @@ export interface McpDeps {
    */
   ingestFile?: IngestFn;
   introspectWithCache?: typeof introspectWithCache;
+  /**
+   * Dataset-manifest parity (spec §6): the composed seams MCP needs because it
+   * has no browser client to drive the manifest UI. Each mirrors a web route's
+   * deps assembly EXACTLY (connect route / select route / the shared
+   * materializer), so cache keys, fingerprints and registration cannot fork
+   * between the two doors. Optional so fake-deps suites written before this
+   * seam keep compiling; realDeps() always supplies them.
+   */
+  connectManifest?: (args: { url: string; creds?: RemoteCreds }) => Promise<ManifestRecord>;
+  getManifestRecord?: (manifestId: string) => ManifestRecord | undefined;
+  selectManifestEntities?: (
+    record: ManifestRecord,
+    question: string
+  ) => Promise<{ entities: string[]; usedFallback: boolean }>;
+  ensureManifestEntitiesReady?: (
+    record: ManifestRecord,
+    names: string[]
+  ) => Promise<{
+    ready: { name: string; csvId: string }[];
+    unavailable: { name: string; reason: string }[];
+  }>;
   models: { codeGen: string; uiCompose: string };
 }
 
@@ -132,6 +168,28 @@ export function ingestFromDeps(deps: McpDeps): IngestFn {
       getActiveSandboxRuntime: deps.getActiveSandboxRuntime,
     })
   );
+}
+
+/**
+ * The materializer deps — assembled ONCE, the same wiring as the web
+ * manifest-connect route (src/app/api/manifest/connect/route.ts). A drift here
+ * is invisible until a cache stops hitting or an entity reads the wrong
+ * source, which is exactly why both doors share this shape.
+ */
+function manifestMaterializeDeps(): MaterializeDeps {
+  return {
+    readCachedSchema: async (sourceKey, fingerprint) => {
+      const entry = await readSchemaCache<CSVSchemaT>(sourceKey);
+      return entry && entry.fingerprint === fingerprint ? entry.artifact : null;
+    },
+    writeCachedSchema: (sourceKey, fingerprint, schema) =>
+      writeSchemaCache(sourceKey, fingerprint, schema),
+    extractBatch: (targets, creds, budgetMs) =>
+      extractRemoteParquetSchemaBatch(targets, creds, budgetMs),
+    registerEntity: (csvId, schema, readUrl, creds, isHive) =>
+      storeRemoteParquetRef(csvId, schema, readUrl, creds, isHive),
+    newId: () => randomUUID(),
+  };
 }
 
 export function realDeps(): McpDeps {
@@ -182,6 +240,61 @@ export function realDeps(): McpDeps {
     toCSVText,
     ingestFile,
     introspectWithCache,
+    connectManifest: async ({ url, creds }) => {
+      const { record } = await connectDatasetManifest(
+        { url, ...(creds ? { creds } : {}) },
+        {
+          fetchManifestText,
+          ...manifestMaterializeDeps(),
+          eagerCapable: () => getActiveSandboxRuntime() === "docker",
+          store: getManifestStore(),
+          now: () => Date.now(),
+        }
+      );
+      return record;
+    },
+    getManifestRecord: (manifestId) => getManifestStore().get(manifestId),
+    // The selection pre-step (spec §7) — CODE-GEN tier, temperature 0, cost
+    // tracked, and the deterministic keyword fallback on any model failure:
+    // the same decisions as the web select route, because the pick decides
+    // what the expensive step sees.
+    selectManifestEntities: (record, question) =>
+      trackRouteCost({ mode: "manifest-select", question }, async () => {
+        let raw = "";
+        try {
+          const result = await generateText({
+            model: getModel(getActiveModels().codeGen),
+            prompt: buildSelectionPrompt(record, question),
+            temperature: 0,
+            maxOutputTokens: 200,
+          });
+          raw = result.text;
+        } catch (err) {
+          logger.warn("MCP manifest select: model call failed, using fallback", {
+            error: errMessage(err),
+          });
+        }
+        return parseSelection(raw, record, question);
+      }),
+    ensureManifestEntitiesReady: (record, names) =>
+      ensureManifestEntities({
+        record,
+        names,
+        deps: manifestMaterializeDeps(),
+        budgetMs: MANIFEST_EAGER_BUDGET_MS,
+        eagerCapable: getActiveSandboxRuntime() === "docker",
+        // wasm fallback: the SAME single-entity extractor the url door uses,
+        // so MCP manifests work on the built-in runtime (no Docker, no client).
+        extractOne: (target, creds, csvId, filename) =>
+          extractRemoteParquetSchema(
+            target.readUrl,
+            csvId,
+            filename,
+            getActiveSandboxRuntime(),
+            target.isHivePartitioned,
+            creds
+          ),
+      }),
     // Live getters, not a boot-time snapshot: the MCP server has no
     // localStorage, so the Settings UI's model choice reaches it through
     // runtime-config — and a long-lived server must see changes made after

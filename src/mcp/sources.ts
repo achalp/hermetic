@@ -75,12 +75,22 @@ export interface WarehouseSource {
   relationships?: WarehouseRelationship[];
 }
 
-export type McpSource = CsvSource | WarehouseSource;
+export interface ManifestSource {
+  id: string;
+  kind: "manifest";
+  label: string;
+  origin?: SourceOrigin;
+  /** Key into the shared manifest store (lib/manifest/store) — the record
+   *  holds per-entity state; this registry holds only the handle. */
+  manifestId: string;
+}
+
+export type McpSource = CsvSource | WarehouseSource | ManifestSource;
 
 const sources = () => stateNamespace<McpSource>("mcp-sources");
 
 export function registerSource(
-  source: Omit<CsvSource, "id"> | Omit<WarehouseSource, "id">
+  source: Omit<CsvSource, "id"> | Omit<WarehouseSource, "id"> | Omit<ManifestSource, "id">
 ): McpSource {
   const entry = { ...source, id: randomUUID() } as McpSource;
   sources().set(entry.id, entry);
@@ -114,13 +124,29 @@ export function allSources(): McpSource[] {
  */
 export interface SourceCapabilities {
   /** Concrete flavor, not just the storage kind. */
-  source_type: "csv" | "cloud-parquet" | "local-parquet" | "warehouse";
+  source_type: "csv" | "cloud-parquet" | "local-parquet" | "warehouse" | "manifest";
   supported_tools: string[];
   /** Tools that will refuse, with the reason — so the host never has to probe. */
   unsupported_tools: Record<string, string>;
 }
 
 export function capabilitiesOf(source: McpSource): SourceCapabilities {
+  if (source.kind === "manifest") {
+    return {
+      source_type: "manifest",
+      supported_tools: ["get_schema", "analyze"],
+      unsupported_tools: {
+        run_analysis:
+          "manifest entities are cloud Parquet (network reads); host-authored code runs " +
+          "with networking denied — use analyze, which selects and reads entities itself",
+        run_sql: "run_sql targets warehouse connections — use analyze for manifest entities",
+        verify_narrative:
+          "no per-source artifact anchor for multi-entity runs yet — pass results/chart_data " +
+          "explicitly",
+        persist_dashboard: "manifest analyses persist through analyze",
+      },
+    };
+  }
   if (source.kind === "warehouse") {
     return {
       source_type: "warehouse",
