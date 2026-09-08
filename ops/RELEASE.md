@@ -182,14 +182,21 @@ Desktop updates are minisign-signed; Tauri verifies every download against the
 public key compiled into the app before writing anything.
 
 - **Public half** — committed in `src-tauri/tauri.conf.json5`
-  (`plugins.updater.pubkey`, key id `413EA66010356217`).
-- **Private half** — the maintainer's keychain, plus repo secrets
+  (`plugins.updater.pubkey`, key id `A59CCFDC7E8CA994`; rotated 2026-09-08
+  from `413EA66010356217` — that key's saved password failed verification
+  while no external installs existed, so a clean swap cost nothing. Releases
+  ≤ v0.5.0 verify against the OLD key only; installs of those versions must
+  reinstall manually).
+- **Private half** — the maintainer's password manager, plus repo secrets
   `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
 
 **Losing the private key is unrecoverable for existing installs.** The public
 key is baked into every shipped binary, so a new keypair cannot sign anything
 those apps will accept — they stop updating permanently and users must
-reinstall by hand. Keep the key and its password backed up somewhere durable.
+reinstall by hand. Keep the key and its password backed up somewhere durable —
+and **verify custody by round-trip** whenever it changes: re-paste the key
+from the manager into a file, sign a scratch file with it, typing the password
+from the manager. An unverified backup is how the 2026-09 rotation happened.
 
 If it leaks, treat it as a code-signing compromise: rotate the keypair, ship a
 new stable release, and expect every install on the old key to need a manual
