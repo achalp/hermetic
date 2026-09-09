@@ -152,11 +152,9 @@ Don't tag by hand. If you must, bump both files first.
 
 ---
 
-## Signing status: updater-signed, provenance-attested, NOT OS code-signed
+## Signing status: updater-signed, provenance-attested, macOS OS-signed, Windows not
 
-Three distinct mechanisms, and only the third is missing — deliberately
-(decided 2026-09: ship unsigned-for-the-OS now rather than not ship macOS/
-Windows at all):
+Three distinct mechanisms:
 
 1. **Updater signatures (minisign)** — every self-updatable bundle on every
    platform. This is what protects the auto-update path; see below.
@@ -164,17 +162,16 @@ Windows at all):
    `.rpm`, `.dmg`, `.app.tar.gz`, `-setup.exe`) is attested;
    `gh attestation verify <file> --repo achalp/hermetic` proves it came from
    this repo's release workflow.
-3. **OS code signing** — none yet. Consequences users will see, worth stating
-   in any download instructions:
-   - **macOS**: the `.app` is ad-hoc signed (`signingIdentity: "-"` in
-     `tauri.conf.json5` — required for it to launch on Apple Silicon at all).
-     Gatekeeper blocks the first open of a downloaded copy: right-click →
-     Open, or System Settings → Privacy & Security → "Open Anyway". Goes away
-     when Developer ID + notarization secrets land.
-   - **Windows**: SmartScreen shows "unrecognized app" until an Authenticode
-     cert lands ("More info" → "Run anyway").
-   - Auto-updates are NOT affected: the updater verifies the minisign
-     signature itself and doesn't re-trigger Gatekeeper/SmartScreen.
+3. **OS code signing** — macOS since 2026-09-08: Developer ID signed +
+   notarized via `APPLE_CERTIFICATE{,_PASSWORD}` + `APPLE_ID`/`APPLE_PASSWORD`
+   /`APPLE_TEAM_ID` on the desktop legs. The signing identity is DERIVED from
+   the certificate — no `APPLE_SIGNING_IDENTITY` and no `signingIdentity` in
+   `tauri.conf.json5`, on purpose: a config value overrides the derivation
+   (the ad-hoc `"-"` pin silently kept builds unsigned for one release after
+   the secrets landed). **Windows** remains unsigned: SmartScreen shows
+   "unrecognized app" until an Authenticode / Azure Trusted Signing setup
+   lands ("More info" → "Run anyway"). Auto-updates are unaffected either
+   way — the updater verifies the minisign signature itself.
 
 ## Signing keys
 

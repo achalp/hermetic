@@ -246,14 +246,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # SIGNING STATUS (deliberate, decided 2026-09): every self-updatable
-          # bundle is minisign-signed for the UPDATER (TAURI_SIGNING_PRIVATE_KEY;
+          # SIGNING STATUS (2026-09): every self-updatable bundle is
+          # minisign-signed for the UPDATER (TAURI_SIGNING_PRIVATE_KEY;
           # build-updater-manifest throws without the .sig) and provenance-
-          # attested — but nothing is OS code-signed yet. macOS ships ad-hoc-
-          # signed (tauri.conf.json5 signingIdentity "-"; Gatekeeper warns on
-          # first open), Windows ships an unsigned NSIS installer (SmartScreen
-          # warns). Replace with Developer ID + notarization / an Authenticode
-          # cert when those secrets exist — the rows stay as they are.
+          # attested. macOS is Developer-ID signed + notarized (APPLE_* env on
+          # the build step; identity derived from the cert). Windows still
+          # ships an unsigned NSIS installer (SmartScreen warns) until an
+          # Authenticode / Azure Trusted Signing setup exists.
           #
           # `attest` is the per-platform provenance subject list: everything we
           # upload that a user can install (incl. .deb/.rpm — they skip the
@@ -325,10 +324,19 @@ jobs:
       # build. The script still purges Tauri's copy-only resource staging,
       # assembles the sidecar (pruning foreign-native prebuilds — one musl
       # .node aborts linuxdeploy) and bundles.
-      - name: Build desktop bundles (updater-signed)
+      - name: Build desktop bundles (updater-signed; mac OS-signed + notarized)
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS Developer ID signing + notarization (ignored on other OSes).
+          # No APPLE_SIGNING_IDENTITY on purpose: Tauri derives the identity
+          # from the imported certificate, and an explicit value could only
+          # break that (tauri.conf carries the same rationale).
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           HERMETIC_TAURI_BUNDLES: ${{ matrix.bundles }}
           HERMETIC_HDIUTIL_DMG: ${{ matrix.hdiutilDmg }}
           HERMETIC_EGRESS_FETCH_PREBUILT: dist/egress-bins/${{ matrix.binId }}/egress-fetch${{ startsWith(matrix.binId, 'win32') && '.exe' || '' }}

@@ -87,16 +87,14 @@
     // `pnpm desktop:build` keeps working on a dev machine with no key.
     createUpdaterArtifacts: true,
 
-    macOS: {
-      // No Developer ID yet — publishing OS-unsigned for now is a DELIBERATE
-      // call (2026-09; the updater chain stays minisign-signed regardless).
-      // "-" ad-hoc signs the whole .app so it at least launches on Apple
-      // Silicon (arm64 refuses fully unsigned binaries); Gatekeeper still
-      // warns on first open of a downloaded copy (right-click → Open, or
-      // System Settings → Privacy & Security → Open Anyway). Replace with the
-      // real identity when Developer ID + notarization secrets land.
-      signingIdentity: "-",
-    },
+    // macOS signing is driven ENTIRELY by CI env (release.yml desktop legs):
+    // APPLE_CERTIFICATE{,_PASSWORD} — Tauri imports the Developer ID cert into
+    // an ephemeral keychain and DERIVES the signing identity from it (no
+    // signingIdentity here on purpose: a config value would override that
+    // derivation, which is exactly how the 2026-09 ad-hoc "-" pin kept
+    // shipping ad-hoc builds after the real cert secrets landed). Local dev
+    // builds on Apple Silicon: export APPLE_SIGNING_IDENTITY="-" for an
+    // ad-hoc-signed .app. Notarization: APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID.
   },
 
   plugins: {
