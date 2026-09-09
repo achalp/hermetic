@@ -324,6 +324,35 @@ jobs:
       # build. The script still purges Tauri's copy-only resource staging,
       # assembles the sidecar (pruning foreign-native prebuilds — one musl
       # .node aborts linuxdeploy) and bundles.
+      # The sidecar assembler codesigns the Mach-Os INSIDE the sidecar (node,
+      # egress-fetch, .node addons) before Tauri seals the outer app —
+      # notarization rejects any unsigned Mach-O in the bundle. That codesign
+      # needs the identity in a keychain BEFORE `tauri build` runs (Tauri's own
+      # ephemeral keychain exists only during its signing phase), so import the
+      # same cert here and hand the derived identity to the assembler.
+      - name: Import Developer ID cert (sidecar Mach-O signing)
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            echo "no APPLE_CERTIFICATE — sidecar signing skipped (unsigned build)"
+            exit 0
+          fi
+          KC="$RUNNER_TEMP/sidecar-sign.keychain-db"
+          security create-keychain -p ci "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p ci "$KC"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple: -k ci "$KC" > /dev/null
+          security list-keychains -d user -s "$KC" login.keychain-db
+          IDENTITY=$(security find-identity -v -p codesigning "$KC" | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)"/\1/')
+          [ -n "$IDENTITY" ] || { echo "no Developer ID Application identity in the imported cert" >&2; exit 1; }
+          echo "HERMETIC_MAC_SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
       - name: Build desktop bundles (updater-signed; mac OS-signed + notarized)
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

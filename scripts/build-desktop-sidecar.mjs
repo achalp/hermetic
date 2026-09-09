@@ -315,7 +315,82 @@ async function main() {
     );
   }
 
+  // macOS release legs: Developer-ID sign every Mach-O INSIDE the sidecar
+  // BEFORE Tauri seals the outer .app. Tauri signs the app's own binaries but
+  // not executables under Resources/, and notarization rejects any unsigned
+  // Mach-O in the bundle ("not signed with a valid Developer ID certificate"
+  // — the v0.5.2-rc.1 failure). The identity comes from the workflow's cert
+  // import step (HERMETIC_MAC_SIGN_IDENTITY); absent locally, this is a no-op.
+  if (process.platform === "darwin" && process.env.HERMETIC_MAC_SIGN_IDENTITY) {
+    await signSidecarMachOs(OUT, process.env.HERMETIC_MAC_SIGN_IDENTITY);
+  }
+
   log("done");
+}
+
+/**
+ * Find and Developer-ID-sign the sidecar's Mach-O binaries: the bundled
+ * `node`, `bin/egress-fetch`, and every native `.node` addon that is actually
+ * a Mach-O (pnpm ships other platforms' prebuilds too — magic bytes, not
+ * extensions, decide). `node` gets JIT entitlements (V8 under the hardened
+ * runtime); everything else is signed with an empty entitlement set. Signing
+ * failures are FATAL: an unsigned Mach-O means notarization rejects the whole
+ * app twenty minutes later with a worse message.
+ */
+async function signSidecarMachOs(out, identity) {
+  const MACHO_MAGICS = new Set([
+    "feedface", // 32-bit
+    "feedfacf", // 64-bit
+    "cafebabe", // universal
+    "cffaedfe", // 64-bit little-endian on disk
+    "cefaedfe", // 32-bit little-endian on disk
+  ]);
+  const isMachO = async (p) => {
+    try {
+      const fd = await import("node:fs/promises").then((m) => m.open(p, "r"));
+      const buf = Buffer.alloc(4);
+      await fd.read(buf, 0, 4, 0);
+      await fd.close();
+      return MACHO_MAGICS.has(buf.toString("hex"));
+    } catch {
+      return false;
+    }
+  };
+
+  const candidates = [join(out, "node")];
+  const binDir = join(out, "bin");
+  for (const e of (await readdir(binDir, { withFileTypes: true }).catch(() => [])) ?? []) {
+    if (e.isFile()) candidates.push(join(binDir, e.name));
+  }
+  async function collectNodeAddons(dir) {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) await collectNodeAddons(full);
+      else if (e.name.endsWith(".node")) candidates.push(full);
+    }
+  }
+  await collectNodeAddons(join(out, "node_modules"));
+
+  const entitlements = join(ROOT, "scripts", "desktop", "sidecar-node.entitlements");
+  let signed = 0;
+  for (const file of candidates) {
+    if (!(await isMachO(file))) continue;
+    const args = ["--force", "--options", "runtime", "--timestamp", "--sign", identity];
+    if (file === join(out, "node")) args.push("--entitlements", entitlements);
+    execFileSync("codesign", [...args, file], { stdio: "inherit" });
+    signed++;
+  }
+  log(`signed ${signed} sidecar Mach-O binaries as "${identity}" (hardened runtime)`);
+  if (signed < 2) {
+    // node + egress-fetch at minimum — fewer means the walk missed something.
+    throw new Error(`expected to sign at least node + egress-fetch, signed ${signed}`);
+  }
 }
 
 main().catch((e) => {
