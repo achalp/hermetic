@@ -218,6 +218,11 @@ async function main() {
     "src-tauri", // Rust target + a prior sidecar assembly — recursive multi-GB bloat
     "rust", // egress-core target (the bin is copied to bin/ below)
     "docs",
+    // The mcpb assembly + CI's downloaded egress-bins (the desktop legs stage
+    // them at dist/egress-bins pre-build). Traced in, the stray unsigned
+    // darwin bin failed mac notarization (v0.5.2-rc.2) — the REAL bin ships
+    // at bin/ below.
+    "dist",
     join("node_modules", ".cache"),
   ]) {
     await rm(join(OUT, junk), { recursive: true, force: true });
@@ -329,13 +334,15 @@ async function main() {
 }
 
 /**
- * Find and Developer-ID-sign the sidecar's Mach-O binaries: the bundled
- * `node`, `bin/egress-fetch`, and every native `.node` addon that is actually
- * a Mach-O (pnpm ships other platforms' prebuilds too — magic bytes, not
- * extensions, decide). `node` gets JIT entitlements (V8 under the hardened
- * runtime); everything else is signed with an empty entitlement set. Signing
- * failures are FATAL: an unsigned Mach-O means notarization rejects the whole
- * app twenty minutes later with a worse message.
+ * Find and Developer-ID-sign EVERY Mach-O in the sidecar tree. Detection is a
+ * full walk with magic-byte checks — never extensions: `.node` addons,
+ * sharp's `.dylib`s, extensionless bins, and whatever the next dependency
+ * ships all get caught the same way (v0.5.2-rc.2 failed notarization on a
+ * `.dylib` an extension-based sweep missed). `node` gets JIT entitlements (V8
+ * under the hardened runtime); everything else is signed with an empty
+ * entitlement set. Signing failures are FATAL: an unsigned Mach-O means
+ * notarization rejects the whole app twenty minutes later with a worse
+ * message.
  */
 async function signSidecarMachOs(out, identity) {
   const MACHO_MAGICS = new Set([
@@ -345,24 +352,21 @@ async function signSidecarMachOs(out, identity) {
     "cffaedfe", // 64-bit little-endian on disk
     "cefaedfe", // 32-bit little-endian on disk
   ]);
+  const { open } = await import("node:fs/promises");
   const isMachO = async (p) => {
     try {
-      const fd = await import("node:fs/promises").then((m) => m.open(p, "r"));
+      const fd = await open(p, "r");
       const buf = Buffer.alloc(4);
-      await fd.read(buf, 0, 4, 0);
+      const { bytesRead } = await fd.read(buf, 0, 4, 0);
       await fd.close();
-      return MACHO_MAGICS.has(buf.toString("hex"));
+      return bytesRead === 4 && MACHO_MAGICS.has(buf.toString("hex"));
     } catch {
       return false;
     }
   };
 
-  const candidates = [join(out, "node")];
-  const binDir = join(out, "bin");
-  for (const e of (await readdir(binDir, { withFileTypes: true }).catch(() => [])) ?? []) {
-    if (e.isFile()) candidates.push(join(binDir, e.name));
-  }
-  async function collectNodeAddons(dir) {
+  const machos = [];
+  async function walk(dir) {
     let entries;
     try {
       entries = await readdir(dir, { withFileTypes: true });
@@ -371,25 +375,22 @@ async function signSidecarMachOs(out, identity) {
     }
     for (const e of entries) {
       const full = join(dir, e.name);
-      if (e.isDirectory()) await collectNodeAddons(full);
-      else if (e.name.endsWith(".node")) candidates.push(full);
+      if (e.isDirectory()) await walk(full);
+      else if (e.isFile() && (await isMachO(full))) machos.push(full);
     }
   }
-  await collectNodeAddons(join(out, "node_modules"));
+  await walk(out);
 
   const entitlements = join(ROOT, "scripts", "desktop", "sidecar-node.entitlements");
-  let signed = 0;
-  for (const file of candidates) {
-    if (!(await isMachO(file))) continue;
+  for (const file of machos) {
     const args = ["--force", "--options", "runtime", "--timestamp", "--sign", identity];
     if (file === join(out, "node")) args.push("--entitlements", entitlements);
     execFileSync("codesign", [...args, file], { stdio: "inherit" });
-    signed++;
   }
-  log(`signed ${signed} sidecar Mach-O binaries as "${identity}" (hardened runtime)`);
-  if (signed < 2) {
+  log(`signed ${machos.length} sidecar Mach-O binaries as "${identity}" (hardened runtime)`);
+  if (machos.length < 2) {
     // node + egress-fetch at minimum — fewer means the walk missed something.
-    throw new Error(`expected to sign at least node + egress-fetch, signed ${signed}`);
+    throw new Error(`expected to sign at least node + egress-fetch, signed ${machos.length}`);
   }
 }
 
