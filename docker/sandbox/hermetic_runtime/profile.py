@@ -116,7 +116,7 @@ def profile_data_edges(df):
             cov = dates.value_counts()
         cov = cov.sort_index()
         vals = [float(x) for x in cov.values]
-        labels = [str(getattr(i, "date", lambda: i)()) for i in cov.index]
+        labels = [str(i.date()) if hasattr(i, "date") else str(i) for i in cov.index]
         if len(vals) < _WINDOW + 2:
             return None
 

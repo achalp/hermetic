@@ -36,6 +36,12 @@ jobs:
         uses: github/codeql-action/init@6f5948dfacef28e207b48d0905cf90c03365536d # v3
         with:
           languages: javascript-typescript
+          # security-extended: more queries, more triage — worth it for a
+          # product whose pitch is the security boundary. Python (the sandbox
+          # runtime + proxies) is covered by ruff's S rules in ci.yml, not
+          # scanned here: CodeQL's python extractor needs a pip-installable
+          # package layout the docker/sandbox tree does not have.
+          queries: security-extended
 
       # JS/TS is interpreted — no build step; CodeQL analyzes the source tree.
       - name: Perform CodeQL Analysis

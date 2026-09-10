@@ -46,6 +46,7 @@ jobs:
       - run: pnpm run lint
       - run: node scripts/check-data-hygiene.mjs
       - run: pnpm run ratchet
+      - run: pnpm run knip:ratchet
       - run: pnpm run isolation
       - run: pnpm run format:check
       - run: pnpm run type-check

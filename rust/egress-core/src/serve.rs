@@ -202,7 +202,7 @@ pub fn write_ok<W: Write>(
     // A header from a hostile upstream could contain framing characters; strip
     // control chars so the header line can never be split or spoofed.
     let cr: String = content_range.chars().filter(|c| !c.is_control()).collect();
-    write!(w, "OK {id} {} {cr}\n", body.len())?;
+    writeln!(w, "OK {id} {} {cr}", body.len())?;
     w.write_all(body)?;
     w.flush()
 }
@@ -213,7 +213,7 @@ pub fn write_err<W: Write>(w: &mut W, id: &str, code: u8, msg: &str) -> std::io:
         .chars()
         .map(|c| if c.is_control() { ' ' } else { c })
         .collect();
-    write!(w, "ERR {id} {code} {one_line}\n")?;
+    writeln!(w, "ERR {id} {code} {one_line}")?;
     w.flush()
 }
 
@@ -387,7 +387,7 @@ mod tests {
             n += 1;
             Ok((
                 format!("body-for-{}", req.id).into_bytes(),
-                format!("bytes 0-99/1000"),
+                "bytes 0-99/1000".to_string(),
             ))
         })
         .unwrap();

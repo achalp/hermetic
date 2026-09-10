@@ -498,7 +498,7 @@ def _kw_p(samples):
             ties += span ** 3 - span
             i = j + 1
         rank_sums = [0.0] * len(samples)
-        for (v, gi), r in zip(allv, ranks):
+        for (_v, gi), r in zip(allv, ranks):
             rank_sums[gi] += r
         h = (12.0 / (n_total * (n_total + 1))) * sum(
             rs * rs / len(s) for rs, s in zip(rank_sums, samples)

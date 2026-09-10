@@ -33,7 +33,7 @@ pub fn parse_url(raw: &str) -> Option<ParsedUrl> {
 
     // Strip anything after the authority: path '/', query '?', or fragment '#'.
     let authority_end = rest
-        .find(|c| c == '/' || c == '?' || c == '#')
+        .find(['/', '?', '#'])
         .unwrap_or(rest.len());
     let authority = &rest[..authority_end];
     if authority.is_empty() {
