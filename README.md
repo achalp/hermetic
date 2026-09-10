@@ -139,6 +139,8 @@ pnpm desktop:dev       # or run it in dev mode (Next dev server + Tauri window)
 
 A `tauri build` produces a **per-OS** installer and must be run **on each target OS** (native webview + code signing are per-platform); prebuilt downloads for Linux, macOS (both arches), and Windows are published from the releases page — updater-signed and provenance-attested; macOS builds are Developer-ID signed + notarized, Windows is **not yet OS code-signed** (SmartScreen will warn on first open; see [`ops/RELEASE.md`](ops/RELEASE.md)).
 
+**Installed-app logs** live in the OS app-data dir under `logs/sidecar.log` (5 MB, one `.old` generation) — macOS: `~/Library/Application Support/com.hermetic.desktop/`, Linux: `~/.local/share/com.hermetic.desktop/`, Windows: `%APPDATA%\com.hermetic.desktop\`. Run artifacts (`data/runs/<id>/journal.jsonl`, `data/diagnostics/`) live next to it.
+
 ### Manual Setup
 
 1. **Install dependencies**

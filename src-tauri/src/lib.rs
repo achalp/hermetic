@@ -83,14 +83,76 @@ fn spawn_sidecar(app: &tauri::App, dir: &PathBuf) -> std::io::Result<(Child, Str
     let port = free_port()?;
     // Writable roots live in the OS app-data dir (the bundle is read-only); the
     // asset root IS the bundle (docker/sandbox runtime + duckdb-wasm live there).
-    let data = app
-        .path()
-        .app_data_dir()
-        .unwrap_or_else(|_| dir.clone());
+    let data = app.path().app_data_dir().unwrap_or_else(|_| dir.clone());
     let node = dir.join(if cfg!(windows) { "node.exe" } else { "node" });
-    let egress = dir
-        .join("bin")
-        .join(if cfg!(windows) { "egress-fetch.exe" } else { "egress-fetch" });
+    let egress = dir.join("bin").join(if cfg!(windows) {
+        "egress-fetch.exe"
+    } else {
+        "egress-fetch"
+    });
+
+    // PATH: a Finder/Dock-launched app inherits launchd's bare PATH
+    // (/usr/bin:/bin:/usr/sbin:/sbin) — no homebrew, no user bins — so the
+    // sidecar's `which claude` (LLM provider detection) found nothing on a
+    // packaged install even with the CLI installed. Append the well-known
+    // install locations; an explicit Settings `binaryPath` still wins inside
+    // the app, and Windows/terminal launches are unaffected (their PATH is
+    // already complete — appending is harmless).
+    let path_env = {
+        let base = std::env::var("PATH").unwrap_or_default();
+        if cfg!(windows) {
+            base
+        } else {
+            let home = std::env::var("HOME").unwrap_or_default();
+            let extras = [
+                "/opt/homebrew/bin".to_string(),
+                "/usr/local/bin".to_string(),
+                format!("{home}/.claude/local"),
+                format!("{home}/.local/bin"),
+                format!("{home}/bin"),
+            ];
+            let mut parts: Vec<String> = if base.is_empty() {
+                Vec::new()
+            } else {
+                base.split(':').map(str::to_string).collect()
+            };
+            for e in extras {
+                if !parts.iter().any(|p| p == &e) {
+                    parts.push(e);
+                }
+            }
+            parts.join(":")
+        }
+    };
+
+    // Persist the sidecar's output: a Finder-launched app's inherited stdio
+    // goes nowhere, which left a packaged install with NO log file to debug
+    // from (macOS: ~/Library/Application Support/com.hermetic.desktop/logs/
+    // sidecar.log). One-generation rotation at 5MB; on any setup failure the
+    // spawn falls back to inherited stdio rather than failing the app.
+    let log_stdio = || -> Option<(std::process::Stdio, std::process::Stdio)> {
+        let log_dir = data.join("logs");
+        std::fs::create_dir_all(&log_dir).ok()?;
+        let log_path = log_dir.join("sidecar.log");
+        if let Ok(meta) = std::fs::metadata(&log_path) {
+            if meta.len() > 5 * 1024 * 1024 {
+                let _ = std::fs::rename(&log_path, log_dir.join("sidecar.log.old"));
+            }
+        }
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .ok()?;
+        let clone = file.try_clone().ok()?;
+        Some((file.into(), clone.into()))
+    };
+    let (out, err) = log_stdio().unwrap_or_else(|| {
+        (
+            std::process::Stdio::inherit(),
+            std::process::Stdio::inherit(),
+        )
+    });
 
     let child = Command::new(node)
         // Preload the hashed-externals hook (build log D16) — works around the Next 16
@@ -110,6 +172,9 @@ fn spawn_sidecar(app: &tauri::App, dir: &PathBuf) -> std::io::Result<(Child, Str
         .env("HERMETIC_EGRESS_FETCH_BIN", egress)
         // The desktop ships the WASM tier + no Docker — force it, predictably.
         .env("HERMETIC_FORCE_RUNTIME", "wasm")
+        .env("PATH", path_env)
+        .stdout(out)
+        .stderr(err)
         .spawn()?;
 
     Ok((child, format!("http://127.0.0.1:{port}")))
@@ -148,9 +213,9 @@ pub fn run() {
                 }
                 // Dev / unbundled: load the Next dev server the developer is running
                 // (`pnpm dev`, matching tauri.conf devUrl). No sidecar is spawned.
-                None => WebviewUrl::External(
-                    "http://localhost:3000".parse().expect("valid dev url"),
-                ),
+                None => {
+                    WebviewUrl::External("http://localhost:3000".parse().expect("valid dev url"))
+                }
             };
 
             WebviewWindowBuilder::new(app, "main", url)
@@ -176,7 +241,10 @@ pub fn run() {
 
 /// Extract the port from a `http://127.0.0.1:PORT` base (built by spawn_sidecar).
 fn url_port(base: &str) -> u16 {
-    base.rsplit(':').next().and_then(|p| p.parse().ok()).unwrap_or(0)
+    base.rsplit(':')
+        .next()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(0)
 }
 
 /// Check for a signed update in the background and install it for the NEXT launch.
