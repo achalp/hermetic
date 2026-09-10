@@ -266,13 +266,28 @@ async function main() {
   await cp(join(ROOT, "docker", "sandbox"), join(OUT, "docker", "sandbox"), { recursive: true });
 
   // 4) Pyodide dist (served at /pyodide/*). Best-effort: large; warn if absent.
-  //    SIDECAR_SKIP_PYODIDE=1 skips the ~200MB copy (CI smoke of server boot only).
+  //    SIDECAR_SKIP_PYODIDE=1 skips the copy (CI smoke of server boot only).
   const pyodide = join(ROOT, "node_modules", "pyodide");
   if (process.env.SIDECAR_SKIP_PYODIDE === "1") {
     log("SKIP pyodide copy (SIDECAR_SKIP_PYODIDE=1) — server-boot smoke only");
   } else if (await has(pyodide)) {
-    await cp(pyodide, join(OUT, "pyodide"), { recursive: true });
-    log("pyodide dist copied");
+    // The npm dist ships WITHOUT the scientific wheels (they CDN-cache into
+    // the dist on first Node loadPackage) — dev machines had them from old
+    // test runs, fresh CI runners did not, and every packaged app shipped a
+    // Pyodide that could not `import pandas` offline (v0.5.4, mac
+    // sidecar.log). Ensure them, copy, then FAIL rather than ship without.
+    execFileSync(process.execPath, [join(ROOT, "scripts", "ensure-pyodide-wheels.mjs")], {
+      cwd: ROOT,
+      stdio: "inherit",
+    });
+    await cp(pyodide, join(OUT, "pyodide"), { recursive: true, dereference: true });
+    const shipped = await readdir(join(OUT, "pyodide"));
+    for (const pkg of ["numpy", "pandas", "scipy"]) {
+      if (!shipped.some((f) => f.startsWith(`${pkg}-`) && f.endsWith(".whl"))) {
+        throw new Error(`sidecar pyodide dist is missing the ${pkg} wheel — wasm would break`);
+      }
+    }
+    log("pyodide dist copied (wheels verified: numpy, pandas, scipy)");
   } else log("WARN pyodide dist missing — the wasm runtime will 404 /pyodide/*");
 
   // 5) egress-fetch bin (release preferred, else debug). Warn if not built.
