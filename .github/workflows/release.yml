@@ -190,7 +190,7 @@ jobs:
       # artifact was uploaded with that subdir; merge-multiple folds them into
       # one tree). REQUIRE_ALL: a missing platform fails the BUILD here rather
       # than shipping a bundle that quietly lacks manifests on that platform.
-      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: egress-bin-*
           path: dist/egress-bins
@@ -315,7 +315,7 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf file
       - run: pnpm install --frozen-lockfile
       - name: Fetch this platform's prebuilt egress-fetch
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: egress-bin-${{ matrix.binId }}
           path: dist/egress-bins
