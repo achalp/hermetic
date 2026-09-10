@@ -192,6 +192,12 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Sidecar(Mutex::new(None)))
         .setup(|app| {
+            // A fresh boot runs whatever the updater installed — clear the
+            // pending-update marker so Settings stops showing "restart to
+            // apply" the moment the restart happened.
+            if let Some(f) = update_pending_file_app(app) {
+                let _ = std::fs::remove_file(f);
+            }
             // DEV (`tauri dev`, debug build): use the hot-reload Next dev server (devUrl)
             // and never spawn a (possibly stale) sidecar — UNLESS HERMETIC_SIDECAR_DIR is
             // set to explicitly test the packaged path. RELEASE: always spawn the sidecar.
@@ -247,6 +253,31 @@ fn url_port(base: &str) -> u16 {
         .unwrap_or(0)
 }
 
+/// Path of the pending-update marker: written after an update installs,
+/// read by the sidecar's health endpoint (Settings' version line), cleared
+/// on boot. Identical to what `lib/paths.ts` derives as `updatePendingFile`.
+fn update_pending_file(handle: &tauri::AppHandle) -> Option<PathBuf> {
+    Some(
+        handle
+            .path()
+            .app_data_dir()
+            .ok()?
+            .join("data")
+            .join("update-pending.json"),
+    )
+}
+
+/// Same path, from the setup-time `App` (no handle yet).
+fn update_pending_file_app(app: &tauri::App) -> Option<PathBuf> {
+    Some(
+        app.path()
+            .app_data_dir()
+            .ok()?
+            .join("data")
+            .join("update-pending.json"),
+    )
+}
+
 /// Check for a signed update in the background and install it for the NEXT launch.
 ///
 /// Deliberate shape (D42):
@@ -279,7 +310,24 @@ fn spawn_update_check(handle: tauri::AppHandle) {
                 // INSIDE this call; an unsigned or mis-signed bundle errors here
                 // and nothing is written.
                 match update.download_and_install(|_, _| {}, || {}).await {
-                    Ok(()) => eprintln!("[hermetic] update {version} installed — restart to apply"),
+                    Ok(()) => {
+                        eprintln!("[hermetic] update {version} installed — restart to apply");
+                        // Surface "restart to apply" in the UI: the sidecar's
+                        // /api/health reads this file (Settings shows the
+                        // banner). File-in-data-dir, NOT a webview-reachable
+                        // command — the §7 empty-IPC posture stays intact.
+                        // Cleared on every boot (see setup): a fresh launch
+                        // runs whatever was installed.
+                        if let Some(f) = update_pending_file(&handle) {
+                            if let Some(dir) = f.parent() {
+                                let _ = std::fs::create_dir_all(dir);
+                            }
+                            let body = format!("{{\"version\":{:?}}}\n", version);
+                            if let Err(e) = std::fs::write(&f, body) {
+                                eprintln!("[hermetic] could not record pending update: {e}");
+                            }
+                        }
+                    }
                     Err(e) => eprintln!("[hermetic] update {version} failed to install: {e}"),
                 }
             }

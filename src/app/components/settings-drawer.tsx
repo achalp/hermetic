@@ -10,6 +10,7 @@ import { InferenceSection } from "./settings/inference-section";
 // Schedule UI moved out of Settings to the dashboard toolbar + Saved Vizs panel.
 import { AnalysisDefaultsSection } from "./settings/analysis-defaults-section";
 import { ConfigSection } from "./settings/config-section";
+import { VersionFooter } from "./settings/version-footer";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
 import type { SchemaMode } from "@/lib/contracts/data-schema";
 
@@ -150,18 +151,7 @@ export function SettingsDrawer({
         </div>
       </CollapsibleSection>
 
-      <div
-        style={{
-          padding: 20,
-          fontSize: 12,
-          color: "var(--color-surface-dark-text4)",
-          lineHeight: 1.7,
-        }}
-      >
-        hermetic v1.0
-        <br />
-        Data stays sealed. Always.
-      </div>
+      <VersionFooter />
     </Drawer>
   );
 }

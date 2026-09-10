@@ -51,6 +51,15 @@ function roots(): HermeticPathRoots {
 export const hermeticPaths = {
   // ── dataRoot ──
   dataDir: () => roots().dataRoot,
+  /**
+   * Written by the DESKTOP SHELL (src-tauri/src/lib.rs) when an auto-update
+   * has been installed and awaits a relaunch; deleted by the shell on every
+   * boot (a fresh boot runs whatever was installed). The sidecar only READS
+   * it (/api/health → Settings' version line) — this is the §7-compliant
+   * channel between the updater and the UI: a file in the data dir, not a
+   * webview-reachable IPC command.
+   */
+  updatePendingFile: () => join(roots().dataRoot, "update-pending.json"),
   historyDir: () => join(roots().dataRoot, "history"),
   savedVizsDir: () => join(roots().dataRoot, "saved-vizs"),
   costDir: () => join(roots().dataRoot, "cost"),
