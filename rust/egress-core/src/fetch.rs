@@ -139,6 +139,13 @@ impl SystemFetcher {
     }
 }
 
+/// One pooled entry: the vetted-address slot the resolver reads, plus the
+/// agent holding the warm connection to it.
+type PooledAgent = (
+    std::sync::Arc<std::sync::Mutex<Vec<SocketAddr>>>,
+    ureq::Agent,
+);
+
 /// A per-(host, port) cache of ureq agents so serve mode reuses TLS connections
 /// (build log D41). Cloning a `ureq::Agent` shares its connection pool, so
 /// handing out clones keeps the underlying sockets warm across requests.
@@ -157,15 +164,7 @@ impl SystemFetcher {
 /// concurrent fetches to the same host.
 #[derive(Debug, Default)]
 pub struct AgentPool {
-    inner: std::sync::Mutex<
-        std::collections::HashMap<
-            (String, u16),
-            (
-                std::sync::Arc<std::sync::Mutex<Vec<SocketAddr>>>,
-                ureq::Agent,
-            ),
-        >,
-    >,
+    inner: std::sync::Mutex<std::collections::HashMap<(String, u16), PooledAgent>>,
 }
 
 impl AgentPool {
