@@ -7,8 +7,27 @@
  */
 import { NextResponse } from "next/server";
 import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
+import { hermeticPaths } from "@/lib/paths";
 import { version } from "../../../../package.json";
+
+/**
+ * The desktop shell writes update-pending.json after installing an
+ * auto-update (applied on relaunch) and deletes it on boot. Read-and-catch
+ * (never exists-then-read); a missing/unreadable file simply means no
+ * pending update — the common case everywhere but a not-yet-restarted app.
+ */
+function pendingUpdateVersion(): string | null {
+  try {
+    const parsed = JSON.parse(readFileSync(hermeticPaths.updatePendingFile(), "utf8")) as {
+      version?: string;
+    };
+    return typeof parsed.version === "string" ? parsed.version : null;
+  } catch {
+    return null;
+  }
+}
 
 function dockerDaemonResponds(): Promise<boolean> {
   return new Promise((resolve) => {
@@ -25,6 +44,7 @@ export async function GET() {
   return NextResponse.json({
     status: "ok",
     version,
+    update_pending: pendingUpdateVersion(),
     sandbox: {
       runtime: sandboxRuntime,
       ...(dockerDaemon !== undefined ? { docker_daemon: dockerDaemon } : {}),

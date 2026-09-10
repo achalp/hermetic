@@ -13,6 +13,9 @@ vi.mock("@/lib/runtime-config", () => ({
 const execFile = vi.fn();
 vi.mock("node:child_process", () => ({ execFile: (...a: unknown[]) => execFile(...a) }));
 
+const readFileSync = vi.fn();
+vi.mock("node:fs", () => ({ readFileSync: (...a: unknown[]) => readFileSync(...a) }));
+
 import { GET } from "@/app/api/health/route";
 
 beforeEach(() => vi.clearAllMocks());
@@ -41,5 +44,29 @@ describe("GET /api/health", () => {
     const body = await (await GET()).json();
     expect(body.sandbox).toEqual({ runtime: "e2b" });
     expect(execFile).not.toHaveBeenCalled();
+  });
+
+  // The desktop shell writes update-pending.json after installing an
+  // auto-update and clears it on boot; the marker is how Settings shows
+  // "restart to apply" without any webview-reachable updater command.
+  it("reports update_pending when the shell's marker exists", async () => {
+    getActiveSandboxRuntime.mockReturnValue("wasm");
+    readFileSync.mockReturnValue('{"version":"9.9.9"}');
+    const body = await (await GET()).json();
+    expect(body.update_pending).toBe("9.9.9");
+  });
+
+  it("update_pending is null when the marker is absent or malformed", async () => {
+    getActiveSandboxRuntime.mockReturnValue("wasm");
+    readFileSync.mockImplementation(() => {
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    });
+    expect((await (await GET()).json()).update_pending).toBeNull();
+
+    readFileSync.mockReturnValue("not json{{");
+    expect((await (await GET()).json()).update_pending).toBeNull();
+
+    readFileSync.mockReturnValue('{"version":42}');
+    expect((await (await GET()).json()).update_pending).toBeNull();
   });
 });

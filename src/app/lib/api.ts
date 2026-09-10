@@ -99,6 +99,19 @@ export async function getSettings(signal?: AbortSignal): Promise<SettingsInfo> {
   return json<SettingsInfo>(res);
 }
 
+export interface HealthInfo {
+  status: string;
+  version: string;
+  /** Set by the desktop shell after an auto-update installs; a relaunch applies it. */
+  update_pending: string | null;
+  sandbox: { runtime: string; docker_daemon?: boolean };
+}
+
+export async function getHealth(signal?: AbortSignal): Promise<HealthInfo> {
+  const res = await fetch("/api/health", { signal });
+  return json<HealthInfo>(res);
+}
+
 export async function putSettings(update: SettingsUpdate): Promise<SettingsInfo> {
   const res = await fetch("/api/settings", {
     method: "PUT",
