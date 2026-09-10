@@ -675,7 +675,6 @@ class TestFindingStatHelpers(unittest.TestCase):
         # NOT 1.96·se — many times wider than the old normal band.
         out = finding_trend([1.0, 2.0, 3.1])
         lo, hi = out["slope_ci95"]
-        slope = out["slope_per_period"]
         half = (hi - lo) / 2.0
         se = half / _t_crit_95(1)
         self.assertAlmostEqual(half, _t_crit_95(1) * se, delta=1e-6)

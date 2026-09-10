@@ -60,6 +60,9 @@ jobs:
       - name: Modularization ratchet
         run: pnpm run ratchet
 
+      - name: Dead-code ratchet (knip)
+        run: pnpm run knip:ratchet
+
       - name: Package isolation check
         run: pnpm run isolation
 
@@ -124,6 +127,14 @@ jobs:
 
       - name: Install the sandbox's pinned scientific stack
         run: pip install pandas==2.2.3 numpy==2.2.4 scipy==1.15.2
+
+      # Static analysis for the shipped Python (ruff.toml scopes it to
+      # docker/sandbox and selects correctness+security rules only — the S
+      # family is ruff's bandit port, so one tool covers both).
+      - name: ruff (sandbox runtime + proxies)
+        run: |
+          pip install ruff==0.16.6
+          ruff check docker/sandbox/
 
       - name: Run runtime tests (contract mirror + statistics)
         run: python3 -m unittest docker.sandbox.hermetic_runtime.test_runtime
@@ -320,9 +331,26 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # THE security boundary gets the most scrutiny: fmt drift, every clippy
+      # lint as an error, cargo test, and RUSTSEC advisories over BOTH
+      # lockfiles (dependency-review only diffs PR changes; audit covers the
+      # standing tree).
+      - name: cargo fmt --check
+        working-directory: rust/egress-core
+        run: cargo fmt --check
+      - name: cargo clippy (-D warnings)
+        working-directory: rust/egress-core
+        run: cargo clippy --locked --all-targets -- -D warnings
       - name: cargo test
         working-directory: rust/egress-core
         run: cargo test --locked
+      - uses: taiki-e/install-action@fa23953489c080190314742a9b907f8e97c6767c # v2
+        with:
+          tool: cargo-audit
+      - name: cargo audit (egress-core + tauri shell lockfiles)
+        run: |
+          cargo audit --file rust/egress-core/Cargo.lock
+          cargo audit --file src-tauri/Cargo.lock
 
   # The Tauri desktop shell — cargo check against the installed webkit (needs the
   # gtk/webkit dev headers on the runner). Build-verifies the shell + its §7
@@ -337,9 +365,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
-      - name: cargo check
+      - name: cargo fmt --check
         working-directory: src-tauri
-        run: cargo check --locked
+        run: cargo fmt --check
+      - name: cargo clippy (-D warnings)
+        working-directory: src-tauri
+        run: cargo clippy --locked -- -D warnings
 
   # Desktop packaging smoke (build log D15): the Next STANDALONE server, assembled
   # into a sidecar, actually SERVES — GET /api/health → 200 under the forced wasm

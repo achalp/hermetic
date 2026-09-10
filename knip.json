@@ -1,0 +1,17 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "entry": [
+    "src/mcp/mcpb-main.ts",
+    "src/mcp/viewer/entry.tsx",
+    "src/mcp/viewer/export-entry.tsx",
+    "src/mcp/viewer/export-stubs/no-export-libs.ts",
+    "src/mcp/viewer/export-stubs/unavailable-chart.tsx",
+    "scripts/*.{mjs,mts}",
+    "scripts/desktop/*.{cjs,mjs}",
+    "e2e/*.spec.ts"
+  ],
+  "project": ["src/**/*.{ts,tsx}", "scripts/**/*.{mjs,mts}"],
+  "tauri": false,
+  "ignoreDependencies": ["tailwindcss", "@duckdb/duckdb-wasm", "@anthropic-ai/mcpb"],
+  "ignoreBinaries": ["hdiutil", "huggingface-cli", "llmfit", "ollama", "caffeinate"]
+}

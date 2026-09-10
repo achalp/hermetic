@@ -60,7 +60,7 @@ def _safe_connect(host, port):
         infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     except (OSError, UnicodeError):
         return None
-    for family, _t, _proto, _canon, sockaddr in infos:
+    for _family, _t, _proto, _canon, sockaddr in infos:
         ip = sockaddr[0]
         if _is_blocked_ip(ip):
             log(f"DENY {host} -> non-routable {ip}")
@@ -283,7 +283,11 @@ def main():
     log(f"listening :{PORT}, allow={sorted(ALLOW_HOSTS)}, max_conn={MAX_CONNECTIONS}")
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    srv.bind(("0.0.0.0", PORT))
+    # Bind-all is DELIBERATE (noqa S104): this runs inside the gateway
+    # container's network namespace and must accept connections arriving from
+    # the sandbox container over the per-run docker bridge — loopback would
+    # refuse exactly the traffic this proxy exists to filter.
+    srv.bind(("0.0.0.0", PORT))  # noqa: S104
     srv.listen(64)
     while True:
         # One transient accept() error (EMFILE, an interrupted syscall) must not

@@ -1,0 +1,37 @@
+# Static analysis for the sandbox Python (docker/sandbox): the runtime the
+# shipped image executes and the two load-bearing proxies/preludes. Scoped to
+# CORRECTNESS + SECURITY signal only — style families stay off so the gate
+# reads zero and any new finding is a real one.
+include = ["docker/sandbox/**/*.py"]
+target-version = "py311"
+
+[lint]
+# F: pyflakes (real bugs: undefined names, unused imports, shadowing)
+# E9: syntax/IO errors
+# B: bugbear (mutable defaults, loop-variable capture, ...)
+# S: flake8-bandit security rules (ruff's port of bandit — one tool, no dup)
+select = ["F", "E9", "B", "S"]
+ignore = [
+  # try/except/pass|continue is the runtime's DELIBERATE robustness style:
+  # a profiling or coercion failure must degrade, never sink the analysis
+  # (the same reasoning as the pipeline's per-entity failure isolation).
+  "S110",
+  "S112",
+  # Executing generated code IS the sandbox's job — the isolation boundary is
+  # the container / worker CSP, not the absence of exec.
+  "S102",
+  # zip(strict=...) churn in the VERDICT-BEARING stats machinery (findings.py's
+  # p-value paths) risks behavior change for zero bug-catch — every zip there
+  # pairs same-length constructions. Do not "fix" (CLAUDE.md: exact p-value
+  # machinery).
+  "B905",
+]
+
+[lint.per-file-ignores]
+# The prelude imports the runtime API INTO the sandbox's global namespace so
+# generated analysis code can call it — "unused" here means load-bearing.
+"docker/sandbox/prelude.py" = ["F401"]
+# Conventional re-export surface.
+"docker/sandbox/hermetic_runtime/__init__.py" = ["F401"]
+# Deterministic seeded fixtures — non-crypto random is the point.
+"docker/sandbox/hermetic_runtime/test_runtime.py" = ["S311"]
