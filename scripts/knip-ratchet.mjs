@@ -11,7 +11,7 @@
 // for the future @hermetic/spec package — and burns down over time; new dead
 // exports cannot be added anywhere without going red.
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -48,11 +48,15 @@ if (process.argv.includes("--update")) {
   process.exit(0);
 }
 
-if (!existsSync(BASELINE_PATH)) {
-  console.error(`no baseline at ${BASELINE_PATH} — run with --update once`);
+let baseline;
+try {
+  // read-and-catch, not exists-then-read: the TOCTOU shape trips CodeQL's
+  // js/file-system-race (flagged by security-extended on this very PR).
+  baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8"));
+} catch {
+  console.error(`no readable baseline at ${BASELINE_PATH} — run with --update once`);
   process.exit(1);
 }
-const baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8"));
 
 let failed = false;
 for (const [key, count] of Object.entries(counts)) {

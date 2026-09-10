@@ -32,9 +32,7 @@ pub fn parse_url(raw: &str) -> Option<ParsedUrl> {
     let scheme = scheme.to_ascii_lowercase();
 
     // Strip anything after the authority: path '/', query '?', or fragment '#'.
-    let authority_end = rest
-        .find(['/', '?', '#'])
-        .unwrap_or(rest.len());
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     let authority = &rest[..authority_end];
     if authority.is_empty() {
         return None;
