@@ -146,7 +146,16 @@ export async function enumerateRemoteParquetFiles(
   const raw = stored.remoteParquetUrl;
   if (!raw) throw new Error("enumerate: no remote URL");
   const split = splitS3Prefix(raw);
-  if (!split) throw new Error(`enumerate: not an s3:// source: ${raw}`);
+  if (!split) {
+    // A multi-file https glob has nothing to LIST — a plain web server
+    // answers no directory enumeration. Name the fix, not just the refusal
+    // (an AppImage user hit the bare version of this with an Overture glob).
+    throw new Error(
+      `enumerate: multi-file reads need a listable s3:// bucket, and this is not one: ${raw}. ` +
+        `For a catalog (e.g. STAC), connect its .json URL instead — entities resolve to ` +
+        `listable mirrors.`
+    );
+  }
 
   const host = s3VhostHost(split.bucket, stored.remoteCreds);
   const allowlist = deriveAllowedEgressHosts(raw, stored.remoteCreds);

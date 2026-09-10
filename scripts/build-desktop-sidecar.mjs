@@ -245,8 +245,23 @@ async function main() {
   await repairIncompletePackages(join(OUT, "node_modules"), join(ROOT, "node_modules"));
   // 2) Static + public (Next standalone does NOT copy these itself).
   await cp(join(ROOT, ".next", "static"), join(OUT, ".next", "static"), { recursive: true });
+  // 2-pre) The browser DuckDB engine served at /duckdb/* — the engine behind
+  // EVERY remote read on the wasm runtime. Its build output is gitignored and
+  // was invoked by NOTHING, so every CI-built desktop bundle shipped without
+  // it and cloud connects failed on install (found on the first real mac
+  // install, v0.5.2). Build it here, then fail LOUDLY if it still isn't there.
+  log("building duckdb-wasm browser assets (/duckdb/*)…");
+  execFileSync(process.execPath, [join(ROOT, "scripts", "build-duckdb-wasm-assets.mjs")], {
+    cwd: ROOT,
+    stdio: "inherit",
+  });
   if (await has(join(ROOT, "public")))
     await cp(join(ROOT, "public"), join(OUT, "public"), { recursive: true });
+  if (!(await has(join(OUT, "public", "duckdb-wasm", "duckdb-bundle.js")))) {
+    throw new Error(
+      "sidecar is missing public/duckdb-wasm/duckdb-bundle.js — remote reads would fail on install"
+    );
+  }
   // 3) Asset root: the per-run Python runtime package (hermeticPaths.sandboxRuntimeAssetsDir).
   await cp(join(ROOT, "docker", "sandbox"), join(OUT, "docker", "sandbox"), { recursive: true });
 
