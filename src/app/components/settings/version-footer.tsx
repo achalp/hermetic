@@ -10,21 +10,16 @@
  * while the user believes they are on latest.
  */
 import { useEffect, useState } from "react";
-
-interface Health {
-  version?: string;
-  update_pending?: string | null;
-}
+import { getHealth, type HealthInfo } from "@/app/lib/api";
 
 export function VersionFooter() {
-  const [health, setHealth] = useState<Health | null>(null);
+  const [health, setHealth] = useState<HealthInfo | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/health", { signal: controller.signal })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: Health | null) => {
-        if (data && !controller.signal.aborted) setHealth(data);
+    getHealth(controller.signal)
+      .then((data) => {
+        if (!controller.signal.aborted) setHealth(data);
       })
       .catch(() => {});
     return () => controller.abort();

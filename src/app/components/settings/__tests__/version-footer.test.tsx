@@ -5,24 +5,23 @@
  * surfaces the desktop shell's "update installed — restart to apply" marker,
  * which previously existed only as an invisible stderr line.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import React from "react";
+import type { HealthInfo } from "@/app/lib/api";
+
+vi.mock("@/app/lib/api", () => ({ getHealth: vi.fn() }));
+
+import { getHealth } from "@/app/lib/api";
 import { VersionFooter } from "@/app/components/settings/version-footer";
 
-const fetchMock = vi.fn();
-
-beforeEach(() => {
-  vi.stubGlobal("fetch", fetchMock);
-});
 afterEach(() => {
   cleanup();
-  vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
 
-const health = (body: unknown) =>
-  fetchMock.mockResolvedValue({ ok: true, json: async () => body } as Response);
+const health = (body: Partial<HealthInfo>) =>
+  vi.mocked(getHealth).mockResolvedValue(body as HealthInfo);
 
 describe("VersionFooter", () => {
   it("shows the live version from /api/health", async () => {
@@ -49,7 +48,7 @@ describe("VersionFooter", () => {
   });
 
   it("degrades to no version (never a wrong one) when health is unreachable", async () => {
-    fetchMock.mockRejectedValue(new Error("offline"));
+    vi.mocked(getHealth).mockRejectedValue(new Error("offline"));
     render(<VersionFooter />);
     // The tagline still renders; no hardcoded version can reappear.
     await waitFor(() => expect(screen.getByText(/Data stays sealed/)).toBeTruthy());
