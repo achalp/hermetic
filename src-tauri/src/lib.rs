@@ -172,6 +172,9 @@ fn spawn_sidecar(app: &tauri::App, dir: &PathBuf) -> std::io::Result<(Child, Str
         .env("HERMETIC_EGRESS_FETCH_BIN", egress)
         // The desktop ships the WASM tier + no Docker — force it, predictably.
         .env("HERMETIC_FORCE_RUNTIME", "wasm")
+        // Lets /api/health report desktop:true so Settings only offers the
+        // update controls where a shell is actually watching for commands.
+        .env("HERMETIC_DESKTOP", "1")
         .env("PATH", path_env)
         .stdout(out)
         .stderr(err)
@@ -196,6 +199,11 @@ pub fn run() {
             // pending-update marker so Settings stops showing "restart to
             // apply" the moment the restart happened.
             if let Some(f) = update_pending_file_app(app) {
+                // A stale progress file would mislead Settings too.
+                if let Some(dir) = f.parent() {
+                    let _ = std::fs::remove_file(dir.join("update-state.json"));
+                    let _ = std::fs::remove_file(dir.join("update-command.json"));
+                }
                 let _ = std::fs::remove_file(f);
             }
             // DEV (`tauri dev`, debug build): use the hot-reload Next dev server (devUrl)
@@ -231,6 +239,7 @@ pub fn run() {
                 .build()?;
 
             spawn_update_check(app.handle().clone());
+            spawn_update_command_watcher(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -267,6 +276,125 @@ fn update_pending_file(handle: &tauri::AppHandle) -> Option<PathBuf> {
     )
 }
 
+/// Live progress of a manual update check (checking → none | installed |
+/// error) — the sidecar's /api/update reads it for the Settings controls.
+fn update_state_file(handle: &tauri::AppHandle) -> Option<PathBuf> {
+    Some(
+        handle
+            .path()
+            .app_data_dir()
+            .ok()?
+            .join("data")
+            .join("update-state.json"),
+    )
+}
+
+fn write_update_state(handle: &tauri::AppHandle, phase: &str, detail: Option<&str>) {
+    if let Some(f) = update_state_file(handle) {
+        if let Some(dir) = f.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let body = serde_json::json!({ "phase": phase, "detail": detail });
+        let _ = std::fs::write(f, body.to_string());
+    }
+}
+
+/// One update check + install, reporting progress via the state file. Shared
+/// by the boot-time auto check and the Settings-triggered manual check —
+/// they must not drift (both end in the SAME update-pending marker).
+async fn run_update_check(handle: &tauri::AppHandle) {
+    if std::env::var("HERMETIC_NO_UPDATE_CHECK").is_ok() {
+        write_update_state(
+            handle,
+            "error",
+            Some("update checks are disabled on this machine"),
+        );
+        return;
+    }
+    let updater = match handle.updater() {
+        Ok(u) => u,
+        Err(e) => {
+            eprintln!("[hermetic] updater unavailable: {e}");
+            write_update_state(handle, "error", Some("updater unavailable in this build"));
+            return;
+        }
+    };
+    write_update_state(handle, "checking", None);
+    match updater.check().await {
+        Ok(Some(update)) => {
+            let version = update.version.clone();
+            eprintln!("[hermetic] update {version} available — downloading");
+            write_update_state(handle, "downloading", Some(&version));
+            // Signature verification against the configured pubkey happens
+            // INSIDE this call; an unsigned or mis-signed bundle errors here
+            // and nothing is written.
+            match update.download_and_install(|_, _| {}, || {}).await {
+                Ok(()) => {
+                    eprintln!("[hermetic] update {version} installed — restart to apply");
+                    write_update_state(handle, "installed", Some(&version));
+                    if let Some(f) = update_pending_file(handle) {
+                        if let Some(dir) = f.parent() {
+                            let _ = std::fs::create_dir_all(dir);
+                        }
+                        let body = format!("{{\"version\":{version:?}}}\n");
+                        if let Err(e) = std::fs::write(&f, body) {
+                            eprintln!("[hermetic] could not record pending update: {e}");
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[hermetic] update {version} failed to install: {e}");
+                    write_update_state(handle, "error", Some(&format!("install failed: {e}")));
+                }
+            }
+        }
+        Ok(None) => write_update_state(handle, "none", None),
+        Err(e) => {
+            eprintln!("[hermetic] update check failed: {e}");
+            write_update_state(handle, "error", Some(&format!("check failed: {e}")));
+        }
+    }
+}
+
+/// Watch for Settings-issued update commands. The page has NO shell-reachable
+/// IPC (§7); its route writes `update-command.json` into the data dir and
+/// this loop — the trusted side — picks it up. Two verbs only: `check` runs
+/// an on-demand update check; `restart` relaunches the app (which applies an
+/// installed update). The file is deleted BEFORE acting so a crash mid-action
+/// never replays it.
+fn spawn_update_command_watcher(handle: tauri::AppHandle) {
+    let cmd_file = match handle.path().app_data_dir() {
+        Ok(d) => d.join("data").join("update-command.json"),
+        Err(_) => return,
+    };
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio_sleep(Duration::from_millis(1500)).await;
+            let Ok(raw) = std::fs::read_to_string(&cmd_file) else {
+                continue;
+            };
+            let _ = std::fs::remove_file(&cmd_file);
+            let action = serde_json::from_str::<serde_json::Value>(&raw)
+                .ok()
+                .and_then(|v| v.get("action").and_then(|a| a.as_str()).map(str::to_string));
+            match action.as_deref() {
+                Some("check") => run_update_check(&handle).await,
+                Some("restart") => {
+                    eprintln!("[hermetic] restart requested from Settings");
+                    handle.restart();
+                }
+                other => eprintln!("[hermetic] ignoring unknown update command: {other:?}"),
+            }
+        }
+    });
+}
+
+/// Async sleep via a blocking worker — avoids adding a direct tokio
+/// dependency for one timer (tauri's async_runtime does not re-export sleep).
+async fn tokio_sleep(d: Duration) {
+    let _ = tauri::async_runtime::spawn_blocking(move || std::thread::sleep(d)).await;
+}
+
 /// Same path, from the setup-time `App` (no handle yet).
 fn update_pending_file_app(app: &tauri::App) -> Option<PathBuf> {
     Some(
@@ -291,48 +419,13 @@ fn update_pending_file_app(app: &tauri::App) -> Option<PathBuf> {
 ///   - the update is applied on the next launch rather than restarting the user
 ///     mid-session (Tauri writes the new AppImage/installer in place).
 fn spawn_update_check(handle: tauri::AppHandle) {
+    // AUTO check only: debug builds and opted-out machines skip the boot-time
+    // check entirely (the Settings-triggered manual check reports its own
+    // unavailability instead of silently doing nothing).
     if cfg!(debug_assertions) || std::env::var("HERMETIC_NO_UPDATE_CHECK").is_ok() {
         return;
     }
     tauri::async_runtime::spawn(async move {
-        let updater = match handle.updater() {
-            Ok(u) => u,
-            Err(e) => {
-                eprintln!("[hermetic] updater unavailable: {e}");
-                return;
-            }
-        };
-        match updater.check().await {
-            Ok(Some(update)) => {
-                let version = update.version.clone();
-                eprintln!("[hermetic] update {version} available — downloading");
-                // Signature verification against the configured pubkey happens
-                // INSIDE this call; an unsigned or mis-signed bundle errors here
-                // and nothing is written.
-                match update.download_and_install(|_, _| {}, || {}).await {
-                    Ok(()) => {
-                        eprintln!("[hermetic] update {version} installed — restart to apply");
-                        // Surface "restart to apply" in the UI: the sidecar's
-                        // /api/health reads this file (Settings shows the
-                        // banner). File-in-data-dir, NOT a webview-reachable
-                        // command — the §7 empty-IPC posture stays intact.
-                        // Cleared on every boot (see setup): a fresh launch
-                        // runs whatever was installed.
-                        if let Some(f) = update_pending_file(&handle) {
-                            if let Some(dir) = f.parent() {
-                                let _ = std::fs::create_dir_all(dir);
-                            }
-                            let body = format!("{{\"version\":{:?}}}\n", version);
-                            if let Err(e) = std::fs::write(&f, body) {
-                                eprintln!("[hermetic] could not record pending update: {e}");
-                            }
-                        }
-                    }
-                    Err(e) => eprintln!("[hermetic] update {version} failed to install: {e}"),
-                }
-            }
-            Ok(None) => {}
-            Err(e) => eprintln!("[hermetic] update check failed: {e}"),
-        }
+        run_update_check(&handle).await;
     });
 }

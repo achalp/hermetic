@@ -25,6 +25,8 @@ interface UseAnalysisActionsArgs {
    * client. Optional: absent when no manifest source is connected.
    */
   prepareManifestForQuestion?: (question: string) => Promise<void>;
+  /** Flip to the progress view before the (possibly slow) pre-step runs. */
+  beginPreparing?: (question: string, mode: QueryMode) => void;
   queryMode: QueryMode;
   currentQuestion: string | null;
   currentMode: QueryMode;
@@ -45,6 +47,7 @@ export function useAnalysisActions({
   onSaved,
   handleQuery,
   prepareManifestForQuestion,
+  beginPreparing,
   queryMode,
   currentQuestion,
   currentMode,
@@ -84,15 +87,28 @@ export function useAnalysisActions({
         openSettings();
         return;
       }
-      // Manifest sources: select entities + ensure them BEFORE dispatch, so the
-      // stream request carries the multi-entity context (never blocks — a
-      // failed pre-step degrades to the single active entity).
+      const effectiveMode = mode ?? queryMode;
+      // Flip to the progress view BEFORE the manifest pre-step: entity
+      // selection + on-demand schema extraction can take minutes on a cold
+      // desktop-wasm install, and awaiting it first left the question page
+      // frozen while the server logged steady progress (found on the first
+      // real mac manifest question, v0.5.6). PREPARING shows the
+      // interstitial without starting the stream.
+      beginPreparing?.(question, effectiveMode);
+      // Manifest sources: select entities + ensure them BEFORE the stream
+      // dispatch, so the request carries the multi-entity context (a failed
+      // pre-step degrades to the single active entity, never blocks the ask).
       await prepareManifestForQuestion?.(question);
-      // Callers without an explicit mode (suggestion pills, history replay)
-      // inherit the currently-selected mode from the QueryInput.
-      handleQuery(question, mode ?? queryMode);
+      handleQuery(question, effectiveMode);
     },
-    [handleQuery, openSettings, queryMode, setLlmWarning, prepareManifestForQuestion]
+    [
+      handleQuery,
+      beginPreparing,
+      openSettings,
+      queryMode,
+      setLlmWarning,
+      prepareManifestForQuestion,
+    ]
   );
 
   // Changing the output style re-asks the current question with the new

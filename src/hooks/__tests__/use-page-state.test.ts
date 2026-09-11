@@ -26,6 +26,26 @@ const makeSpec = (id = "r") => ({ root: id, elements: {} }) as any;
 const makeArtifacts = (id = "a") => ({ id }) as any;
 
 describe("pageReducer", () => {
+  describe("PREPARING", () => {
+    it("shows the progress view WITHOUT starting the stream (seq unchanged)", () => {
+      // The manifest pre-step can take minutes on a cold desktop-wasm
+      // install; the interstitial must appear at click time, and the stream
+      // (keyed on questionSeq) must not fire until QUERY follows.
+      const state = pageReducer(initial, { type: "PREPARING", question: "How many homes?" });
+      expect(state.isAnalyzing).toBe(true);
+      expect(state.currentQuestion).toBe("How many homes?");
+      expect(state.questionSeq).toBe(initial.questionSeq);
+      expect(state.loadedSpec).toBeNull();
+    });
+
+    it("the follow-up QUERY still bumps seq exactly once", () => {
+      const preparing = pageReducer(initial, { type: "PREPARING", question: "Q" });
+      const queried = pageReducer(preparing, { type: "QUERY", question: "Q" });
+      expect(queried.questionSeq).toBe(initial.questionSeq + 1);
+      expect(queried.isAnalyzing).toBe(true);
+    });
+  });
+
   describe("QUERY", () => {
     it("sets question, increments seq, starts analyzing, clears loadedSpec + rerun fields", () => {
       const state = pageReducer(initial, { type: "QUERY", question: "How many rows?" });
