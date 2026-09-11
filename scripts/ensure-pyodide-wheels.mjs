@@ -28,11 +28,15 @@ const WANT = ["numpy", "pandas", "scipy", "matplotlib", "scikit-learn"];
 
 const have = () => {
   const files = readdirSync(DIST);
-  // PEP 427 normalizes '-' to '_' in wheel filenames: the scikit-learn wheel
-  // is scikit_learn-1.8.0-….whl, so match on the normalized spelling.
+  // PEP 427 normalizes '-' to '_' in the DISTRIBUTION segment of a wheel
+  // filename (scikit_learn-1.8.0-….whl) while '-' stays the FIELD separator.
+  // So: normalize the package NAME only, and match against the raw filename —
+  // normalizing the filename too would eat the name-version separator and
+  // match nothing (that variant shipped and broke both desktop bundle builds
+  // for v0.5.8: "have []" even with every wheel present).
   return WANT.filter((p) => {
     const prefix = `${p.replace(/-/g, "_")}-`;
-    return files.some((f) => f.replace(/-/g, "_").startsWith(prefix) && f.endsWith(".whl"));
+    return files.some((f) => f.startsWith(prefix) && f.endsWith(".whl"));
   });
 };
 
