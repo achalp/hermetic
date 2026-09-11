@@ -44,7 +44,7 @@ export const DUCKDB_WASM_FILE = "duckdb-mvp.wasm";
  * the Python shim calls.
  */
 export const DUCKDB_BOOT_FN_SOURCE = `
-async function __hermeticBootDuckDb(base, aliases) {
+async function __hermeticBootDuckDb(base, aliases, spatial) {
   importScripts(base + ${JSON.stringify(DUCKDB_BUNDLE_FILE)});
   const duck = self.DuckDBB;
   const db = await duck.createDuckDB(
@@ -77,6 +77,13 @@ async function __hermeticBootDuckDb(base, aliases) {
   conn.query("SET custom_extension_repository='" + repo + "'");
   conn.query("SET autoinstall_extension_repository='" + repo + "'");
   conn.query("INSTALL parquet"); conn.query("LOAD parquet");
+  // spatial only when the code needs it (codeNeedsSpatial): it is the largest
+  // extension in the repo, and a non-geo run must not pay for the download.
+  // Eager INSTALL+LOAD here — rather than trusting LOAD-time autoinstall — so
+  // the generated code's own "LOAD spatial" hits an already-loaded extension,
+  // and a repo miss fails at BOOT with a legible message instead of surfacing
+  // mid-analysis as the anonymous _setThrew crash (run 9cb7770b).
+  if (spatial) { conn.query("INSTALL spatial"); conn.query("LOAD spatial"); }
   // httpfs only when a remote source is registered: it is a separate extension
   // download, and a local-file run should not pay for it.
   if (aliases && aliases.length > 0) {
@@ -126,8 +133,33 @@ async function __hermeticBootDuckDb(base, aliases) {
     const n = Number(composed);
     return Number.isFinite(n) ? n : composed;
   };
+  // Staged-file bridge (D9 parity): DuckDB-WASM cannot see Pyodide's MEMFS, so
+  // the worker registers each staged data file's BYTES under its /data path —
+  // making duckdb.sql("FROM '/data/input.csv'") work exactly as it does in the
+  // Docker container. Registration failures are surfaced by the query itself
+  // ("file not found"), which is the legible error we want.
+  self.__hermeticDuckRegister = (name, bytes) => {
+    // Same-path restage (fetchInputs overriding the inline CSV) re-registers:
+    // drop any prior registration first — dropFile on an unknown name varies
+    // by build, so it is best-effort.
+    try { db.dropFile(name); } catch (_e) { /* not registered yet */ }
+    db.registerFileBuffer(name, bytes);
+  };
+  // ── Bounded materialization (the portable half of the Docker prelude's
+  // .df() row-cap guard) ── every row crosses Arrow → JS objects → JSON →
+  // Python here, ~3 allocations per cell, so an unaggregated million-row
+  // result OOMs the worker with no cgroup to catch it. Fail with instructions
+  // instead: the retry loop feeds this to the model verbatim.
+  const MAX_ROWS = 500000;
   self.__hermeticDuckQuery = (sql) => {
     const table = conn.query(String(sql));
+    if (table.numRows > MAX_ROWS) {
+      throw new Error(
+        "DuckDB result has " + table.numRows + " rows - over the " + MAX_ROWS +
+        "-row materialization cap of the in-browser tier. Aggregate inside DuckDB " +
+        "(GROUP BY / COUNT / LIMIT) and return a small frame instead of raw rows."
+      );
+    }
     const fields = table.schema.fields;
     const rows = table.toArray().map((row) => {
       const record = row.toJSON();
@@ -154,6 +186,20 @@ async function __hermeticBootDuckDb(base, aliases) {
  */
 export function codeNeedsDuckDb(code: string): boolean {
   return /\b(?:import|from)\s+duckdb\b/.test(code);
+}
+
+/**
+ * Does this generated code need the spatial extension? The geo skill stack
+ * prompts `LOAD spatial` + ST_* functions on every geometry-column source
+ * (Docker preinstalls spatial in the image; the wasm tier vendors it in the
+ * local extension repo). Matched on the LOAD/INSTALL statement or any ST_*
+ * call so a code path that skips the explicit LOAD still gets the extension.
+ * Over-inclusion is cheap: a false positive costs one extension download. The
+ * ST_ match is case-SENSITIVE (spatial functions are conventionally uppercase)
+ * so ordinary identifiers like `st_louis` never trigger the download.
+ */
+export function codeNeedsSpatial(code: string): boolean {
+  return /\b(?:INSTALL|LOAD)\s+spatial\b/i.test(code) || /\bST_[A-Za-z]/.test(code);
 }
 
 /**

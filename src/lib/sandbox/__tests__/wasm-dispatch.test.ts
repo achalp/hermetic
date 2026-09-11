@@ -40,6 +40,74 @@ describe("executeSandbox — wasm dispatch", () => {
     expect(result).toBe(success);
   });
 
+  it("a wasm run loading a NON-vendored DuckDB extension fails legibly pre-dispatch and stays retryable", async () => {
+    // The alternative is the anonymous _setThrew crash inside the engine after
+    // minutes of execution (run 9cb7770b). No errorKind: the reasons feed the
+    // retry prompt so the next generation can comply.
+    const wasmExecutor = vi.fn<WasmExecutor>(async () => success);
+    const result = await executeSandbox("a,b\n1,2\n", "import duckdb\nduckdb.sql('LOAD icu')", {
+      runtime: "wasm",
+      wasmExecutor,
+    });
+    expect(wasmExecutor).not.toHaveBeenCalled();
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.errorKind).toBeUndefined();
+      expect(result.error).toMatch(/'icu'/);
+      expect(result.error).toMatch(/WASM sandbox cannot serve/);
+    }
+  });
+
+  it("a wasm run loading the VENDORED spatial extension dispatches, with spatial requested at boot", async () => {
+    const wasmExecutor = vi.fn<WasmExecutor>(async () => success);
+    const code = "import duckdb\nduckdb.sql('LOAD spatial')\nduckdb.sql('SELECT ST_Point(1, 2)')";
+    const result = await executeSandbox("a,b\n1,2\n", code, { runtime: "wasm", wasmExecutor });
+    expect(result).toBe(success);
+    const [, , opts] = wasmExecutor.mock.calls[0];
+    expect(opts.duckdb).toMatchObject({ base: "/duckdb/", spatial: true });
+  });
+
+  it("threads the run hooks through: signal, onProgress, and failureHints reach the executor (control parity)", async () => {
+    const wasmExecutor = vi.fn<WasmExecutor>(async () => success);
+    const controller = new AbortController();
+    const onProgress = vi.fn();
+    const failureHints = () => [
+      { skill: "geo-overture", pattern: "leaf", hint: "bounded aggregate" },
+    ];
+    await executeSandbox("a,b\n1,2\n", "print(1)", {
+      runtime: "wasm",
+      wasmExecutor,
+      hooks: { signal: controller.signal, onProgress, failureHints },
+    });
+    const [, , opts] = wasmExecutor.mock.calls[0];
+    expect(opts.signal).toBe(controller.signal);
+    expect(opts.onProgress).toBe(onProgress);
+    expect(opts.failureHints).toBe(failureHints);
+  });
+
+  it("skill_lib helper modules ride additionalFiles into the wasm executor (C9)", async () => {
+    const wasmExecutor = vi.fn<WasmExecutor>(async () => success);
+    await executeSandbox("a,b\n1,2\n", "print(1)", {
+      runtime: "wasm",
+      wasmExecutor,
+      additionalFiles: [{ path: "/data/skill_lib/planet_scale.py", content: "def f(): pass" }],
+    });
+    const [, , opts] = wasmExecutor.mock.calls[0];
+    expect(opts.additionalFiles).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: "/data/skill_lib/planet_scale.py" })])
+    );
+  });
+
+  it("a non-geo wasm duckdb run does NOT request the spatial extension (opt-in download)", async () => {
+    const wasmExecutor = vi.fn<WasmExecutor>(async () => success);
+    await executeSandbox("a,b\n1,2\n", "import duckdb\nduckdb.sql('SELECT 1')", {
+      runtime: "wasm",
+      wasmExecutor,
+    });
+    const [, , opts] = wasmExecutor.mock.calls[0];
+    expect(opts.duckdb).toMatchObject({ base: "/duckdb/", spatial: false });
+  });
+
   it("a wasm run with NO executor configured fails cleanly (user-config), never falls through to Docker", async () => {
     const result = await executeSandbox("a,b\n1,2\n", "print(1)", { runtime: "wasm" });
     expect(result.success).toBe(false);

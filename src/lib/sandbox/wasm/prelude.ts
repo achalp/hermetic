@@ -104,9 +104,31 @@ try:
 except Exception as _prelude_bind_err:  # loud, not fatal: pandas-only code must still run
     print("hermetic prelude: runtime binding failed: %r" % (_prelude_bind_err,), file=_sys.stderr)
 
+# Headless plotting parity: matplotlib in a DOM-less worker must never try the
+# browser-canvas backend. AGG is what the Docker image effectively renders with;
+# setdefault so an explicit caller choice still wins.
+import os as _os
+_os.environ.setdefault("MPLBACKEND", "AGG")
+
 def progress(phase=None, detail=None, **fields):
-    # Docker's heartbeat hook; the worker has no heartbeat fd — deliberate no-op
-    # so prompted progress() calls never NameError here.
+    # Docker streams these off stdout; here the browser worker exposes a JS
+    # hook (__hermeticProgress, worker-source.ts) that posts a bounded frame to
+    # the sidecar. Best-effort on BOTH edges: the Node parity executor has no
+    # hook (getattr → None) and a throwing bridge must never break the run.
+    try:
+        import js as _js, json as _json
+        _hook = getattr(_js, "__hermeticProgress", None)
+        if _hook is None:
+            return None
+        _frame = {"phase": str(phase) if phase is not None else "analyzing"}
+        if detail is not None:
+            _frame["detail"] = str(detail)
+        _f = fields.get("fraction")
+        if isinstance(_f, (int, float)):
+            _frame["fraction"] = float(_f)
+        _hook(_json.dumps(_frame))
+    except Exception:
+        pass
     return None
 `;
 }
@@ -126,6 +148,12 @@ export interface UnsupportedFeatures {
  * the chart family). Matched as a real import statement, not a bare mention.
  */
 const UNSUPPORTED_IMPORTS: ReadonlyArray<{ readonly name: string; readonly reason: string }> = [
+  {
+    name: "seaborn",
+    reason:
+      "imports seaborn — not in the Pyodide distribution (matplotlib/scikit-learn are and load on " +
+      "demand); plot with matplotlib directly or route to Docker",
+  },
   {
     name: "statsmodels",
     reason:
@@ -169,6 +197,21 @@ const REMOTE_READS: ReadonlyArray<{ readonly pattern: RegExp; readonly reason: s
 ];
 
 /**
+ * DuckDB extensions the WASM tier can actually serve: the local same-origin
+ * repository (scripts/build-duckdb-wasm-assets.mjs EXTENSIONS) vendors exactly
+ * these — the public repo (extensions.duckdb.org) is blocked by connect-src
+ * 'self', so a LOAD/INSTALL of anything else dies inside the engine as the
+ * anonymous `_setThrew` crash (run 9cb7770b) AFTER burning the retry budget.
+ * Pre-route it to Docker with a legible reason instead. Keywords are matched
+ * case-sensitively (SQL convention in generated code): a lowercase miss only
+ * dead-ends late, while a case-insensitive match would false-flag ordinary
+ * prose like `# load data`. (INSTALL httpfs stays separately guarded in
+ * REMOTE_READS — generated code must not manage the worker's own transport.)
+ */
+const VENDORED_EXTENSIONS: ReadonlySet<string> = new Set(["parquet", "httpfs", "spatial"]);
+const EXTENSION_STMT = /\b(?:INSTALL|LOAD)\s+(?:EXTENSION\s+)?['"]?([A-Za-z_][A-Za-z0-9_]*)/g;
+
+/**
  * Scan generated Python for features the WASM tier can't serve. Pure regex — a
  * best-effort UX router, deliberately over-inclusive (a false positive only
  * routes an analysis to Docker; a miss dead-ends a no-Docker user), never the
@@ -189,6 +232,18 @@ export function detectUnsupportedFeatures(code: string): UnsupportedFeatures {
   for (const { pattern, reason } of REMOTE_READS) {
     if (pattern.test(code)) {
       reasons.push(reason);
+    }
+  }
+
+  const flaggedExtensions = new Set<string>();
+  for (const m of code.matchAll(EXTENSION_STMT)) {
+    const name = m[1].toLowerCase();
+    if (!VENDORED_EXTENSIONS.has(name) && !flaggedExtensions.has(name)) {
+      flaggedExtensions.add(name);
+      reasons.push(
+        `loads DuckDB extension '${name}' — the WASM tier's local repository vendors only ` +
+          `parquet/httpfs/spatial (the public extension repo is blocked by CSP); route to Docker`
+      );
     }
   }
 

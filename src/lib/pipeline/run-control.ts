@@ -44,6 +44,8 @@ interface RunControl {
   onProgress?: (p: SandboxProgress) => void;
   /** Dispatches a WASM execute-request into the run's patch stream (webview handoff). */
   onWasmExecute?: (req: WasmExecuteRequest) => void;
+  /** Dispatches a WASM cancel into the run's patch stream (browser terminates the worker). */
+  onWasmCancel?: (id: string) => void;
   /** Active skills' phase-keyed OOM remedies (see skills/types.ts). */
   failureHints?: SkillFailureHint[];
   startedAt: number;
@@ -74,12 +76,14 @@ const containerOwner = stateNamespace<string>("run-container-owner");
 export function registerRun(
   runId: string,
   onProgress?: (p: SandboxProgress) => void,
-  onWasmExecute?: (req: WasmExecuteRequest) => void
+  onWasmExecute?: (req: WasmExecuteRequest) => void,
+  onWasmCancel?: (id: string) => void
 ): AbortController {
   const existing = runs.get(runId);
   if (existing) {
     existing.onProgress = onProgress ?? existing.onProgress;
     existing.onWasmExecute = onWasmExecute ?? existing.onWasmExecute;
+    existing.onWasmCancel = onWasmCancel ?? existing.onWasmCancel;
     return existing.controller;
   }
   const controller = new AbortController();
@@ -88,6 +92,7 @@ export function registerRun(
     containers: new Set(),
     onProgress,
     onWasmExecute,
+    onWasmCancel,
     startedAt: Date.now(),
     stopped: false,
   });
@@ -216,9 +221,24 @@ export function endRun(runId: string): void {
  * pipeline/ build hooks here and pass them down.
  */
 export function ambientSandboxHooks(): SandboxRunHooks {
+  // Capture the runId EAGERLY (like `signal` below): several hook invocations
+  // arrive OUTSIDE the run's AsyncLocalStorage context — a wasm progress frame
+  // comes in on its own /api/wasm-result POST, and Node dispatches AbortSignal
+  // listeners in the ABORTER's context (the stop route), not the registration
+  // context. An ambient getRunId() inside those callbacks reads undefined and
+  // silently no-ops (confirmed live: every wasm progress frame was dropped at
+  // this last hop while the whole upstream pipeline worked).
+  const runId = getRunId();
   return {
     signal: getRunSignal(),
-    onProgress: reportProgress,
+    onProgress: (p) => {
+      const rc = runId ? runs.get(runId) : undefined;
+      try {
+        rc?.onProgress?.(p);
+      } catch {
+        // Progress is best-effort — never let it break execution.
+      }
+    },
     onContainerStart: registerContainer,
     onContainerEnd: unregisterContainer,
     failureHints: getRunFailureHints,
@@ -249,8 +269,21 @@ function dispatchWasmExecute(req: WasmExecuteRequest): void {
  * `wasmExecutor`; only invoked when the active runtime is "wasm".
  */
 export function ambientWasmExecutor(): WasmExecutor {
+  // Captured EAGERLY: emitCancel fires from the run signal's abort listener,
+  // which Node dispatches in the ABORTER's async context — the stop route,
+  // where getRunId() is undefined. An ambient lookup there silently no-ops and
+  // the browser worker keeps burning CPU after a Stop (confirmed by tracing;
+  // the same eager-capture rule as ambientSandboxHooks).
+  const runId = getRunId();
   return createStreamWasmExecutor({
     registry: getHandoffRegistry(),
     emit: dispatchWasmExecute,
+    // Dispatch a WASM cancel into the run's patch stream so the browser
+    // terminates the in-flight worker. Best-effort: with no live stream there
+    // is nobody left to cancel (the executor's abort path already resolved).
+    emitCancel: (id) => {
+      const rc = runId ? runs.get(runId) : undefined;
+      rc?.onWasmCancel?.(id);
+    },
   });
 }

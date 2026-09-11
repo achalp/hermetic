@@ -105,5 +105,31 @@ describe("planSandboxRouting — the network-dispatch table", () => {
     it("wasm with network:'deny' local run still routes to wasm", () => {
       expect(plan({ runtime: "wasm", network: "deny" }).kind).toBe("wasm");
     });
+
+    it("PINS the alias-vs-gate interaction (E11): a wasm remote run passes because its SQL holds only same-origin ALIAS names", () => {
+      // supportsRemoteIO stays false for wasm — ranged remote reads are legal
+      // only because generated SQL addresses registered aliases, so
+      // codeDoesRemoteIo() sees no remote scheme. This subtlety is load-bearing:
+      // if alias naming ever leaks real URLs into the code, the gate rejects.
+      const aliasCode =
+        "import duckdb\nduckdb.sql(\"SELECT count(*) FROM read_parquet(['release/theme=places/part-0.parquet'], hive_partitioning=true)\")";
+      expect(
+        plan({
+          runtime: "wasm",
+          code: aliasCode,
+          remoteParquetUrl: "https://overture.example/theme=places/*.parquet",
+        }).kind
+      ).toBe("wasm");
+      // The same run with a literal remote URL in the CODE is rejected by the gate.
+      const urlCode =
+        "import duckdb\nduckdb.sql(\"SELECT * FROM read_parquet('s3://bucket/k.parquet')\")";
+      expect(
+        plan({
+          runtime: "wasm",
+          code: urlCode,
+          remoteParquetUrl: "https://overture.example/theme=places/*.parquet",
+        }).kind
+      ).toBe("reject");
+    });
   });
 });

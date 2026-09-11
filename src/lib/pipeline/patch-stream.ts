@@ -20,6 +20,7 @@ import { parsePatchLines, readRunError } from "@/lib/pipeline/patch-lines";
 import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
 import { registerRun, endRun, type SandboxProgress } from "@/lib/pipeline/run-control";
 import type { WasmExecuteRequest } from "@/lib/sandbox/wasm/handoff";
+import type { WasmCancelRequest } from "@/lib/contracts/stream-state";
 import {
   openRunChannel,
   publishRunLine,
@@ -103,7 +104,7 @@ export async function runPatchStream(
     const runId = getRunId()!;
     // Register the run so the stop endpoint can abort it and the sandbox
     // runner can subscribe to its signal + stream execution progress.
-    registerRun(runId, emitExecProgress, emitWasmExecute);
+    registerRun(runId, emitExecProgress, emitWasmExecute, emitWasmCancel);
     // Open the run's output channel; its buffer IS emittedLines (single
     // source of truth — replayed to a reconnecting client, and read by the
     // disconnect history-save). See run-stream-hub.
@@ -170,6 +171,20 @@ export async function runPatchStream(
         emit(JSON.stringify({ op: "add", path: "/state", value: { __wasm_exec: req } }) + "\n");
       } else {
         emit(JSON.stringify({ op: "add", path: "/state/__wasm_exec", value: req }) + "\n");
+      }
+    }
+
+    // Push a webview cancel for an in-flight execute-request. The client
+    // terminates that id's worker (the wasm counterpart of `docker rm -f` on
+    // abort — resolving the sidecar handoff alone would leave Python burning
+    // CPU in the webview). Same first-patch guard as emitWasmExecute.
+    function emitWasmCancel(id: string) {
+      const req: WasmCancelRequest = { type: "wasm-cancel", id };
+      if (!stateInitialized) {
+        stateInitialized = true;
+        emit(JSON.stringify({ op: "add", path: "/state", value: { __wasm_cancel: req } }) + "\n");
+      } else {
+        emit(JSON.stringify({ op: "add", path: "/state/__wasm_cancel", value: req }) + "\n");
       }
     }
 

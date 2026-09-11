@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getHandoffRegistry } from "@/lib/sandbox/wasm/handoff-singleton";
 import type { HandoffEnvelope } from "@/lib/sandbox/wasm/handoff-registry";
+import { validateWorkerProgress, type WorkerProgressMessage } from "@/lib/sandbox/wasm/relay";
 import { logger } from "@/lib/logger";
 
 /**
@@ -44,6 +45,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid envelope" }, { status: 400 });
   }
   const b = body as Record<string, unknown>;
+
+  // A live progress frame (kind:"progress") — the wasm counterpart of the
+  // Docker stdout heartbeat. Validated by the relay's strict tiny-shape gate
+  // (three clamped fields, nothing else forwarded) and delivered to the still-
+  // pending handoff's onProgress. Best-effort: an unknown/settled id or a
+  // listener-less handoff is a 200 no-op, never an error the client retries.
+  if (b.kind === "progress") {
+    const verdict = validateWorkerProgress(b);
+    if (!verdict.ok) {
+      return NextResponse.json(
+        { error: `invalid progress frame: ${verdict.reason}` },
+        { status: 400 }
+      );
+    }
+    const { kind: _kind, ...frame }: WorkerProgressMessage = verdict.message;
+    getHandoffRegistry().progress(id, frame);
+    return NextResponse.json({ ok: true });
+  }
   // Coerce only the fields resolve() stores; a non-numeric exitCode becomes NaN
   // so the downstream relay integer check rejects it (never trusted as 0).
   const envelope: HandoffEnvelope = {

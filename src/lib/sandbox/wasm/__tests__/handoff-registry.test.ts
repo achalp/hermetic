@@ -54,3 +54,42 @@ describe("createHandoffRegistry", () => {
     expect(reg.size()).toBe(0);
   });
 });
+
+describe("progress delivery", () => {
+  const seq = () => {
+    let n = 0;
+    return () => `p-${n++}`;
+  };
+
+  it("delivers frames to a pending handoff's onProgress and stops after settle", () => {
+    const reg = createHandoffRegistry(seq());
+    const frames: unknown[] = [];
+    const h = reg.create({ onProgress: (f) => frames.push(f) });
+    expect(reg.progress(h.id, { phase: "scanning", fraction: 0.2 })).toBe(true);
+    reg.resolve(h.id, { exitCode: 0, output: "" });
+    expect(reg.progress(h.id, { phase: "late" })).toBe(false);
+    expect(frames).toEqual([{ phase: "scanning", fraction: 0.2 }]);
+  });
+
+  it("is false for a listener-less handoff and an unknown id", () => {
+    const reg = createHandoffRegistry(seq());
+    const h = reg.create();
+    void h.promise.catch(() => {}); // consume the deliberate rejection below
+    expect(reg.progress(h.id, { phase: "x" })).toBe(false);
+    expect(reg.progress("nope", { phase: "x" })).toBe(false);
+    reg.reject(h.id, "done");
+  });
+
+  it("a throwing consumer never breaks the registry (progress is best-effort)", () => {
+    const reg = createHandoffRegistry(seq());
+    const h = reg.create({
+      onProgress: () => {
+        throw new Error("consumer bug");
+      },
+    });
+    void h.promise.catch(() => {}); // consume the deliberate rejection below
+    expect(() => reg.progress(h.id, { phase: "x" })).not.toThrow();
+    expect(reg.progress(h.id, { phase: "x" })).toBe(true);
+    reg.reject(h.id, "done");
+  });
+});

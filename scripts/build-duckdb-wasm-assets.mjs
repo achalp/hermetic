@@ -35,8 +35,13 @@ const OUT = join(ROOT, "public", "duckdb-wasm");
 const PKG = join(ROOT, "node_modules", "@duckdb", "duckdb-wasm");
 const DIST = join(PKG, "dist");
 
-/** Extensions the analysis tier needs: parquet (always) + httpfs (ranged remote reads). */
-const EXTENSIONS = ["parquet", "httpfs"];
+/**
+ * Extensions the analysis tier needs: parquet (always), httpfs (ranged remote
+ * reads), spatial (the geo skill stack prompts `LOAD spatial` + ST_* on every
+ * geometry-column source — without it vendored, that LOAD dies as an anonymous
+ * `_setThrew` crash on the first statement; run 9cb7770b).
+ */
+const EXTENSIONS = ["parquet", "httpfs", "spatial"];
 const OFFLINE = process.argv.includes("--offline");
 
 async function exists(p) {

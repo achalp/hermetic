@@ -31,7 +31,12 @@ export function useWasmHandoff(spec: Spec | null, deps?: Partial<ClientHandoffDe
     });
   }
   useEffect(() => {
-    const req = readStreamState(spec).__wasm_exec;
-    if (req) ctrlRef.current!.handle(req);
+    const state = readStreamState(spec);
+    if (state.__wasm_exec) ctrlRef.current!.handle(state.__wasm_exec);
+    // A cancel terminates that id's in-flight worker (the wasm counterpart of
+    // Docker's container kill on the run signal). Idempotent in the controller.
+    if (state.__wasm_cancel?.type === "wasm-cancel") {
+      ctrlRef.current!.cancel(state.__wasm_cancel.id);
+    }
   }, [spec]);
 }

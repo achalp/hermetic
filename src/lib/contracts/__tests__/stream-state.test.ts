@@ -36,13 +36,17 @@ describe("findReservedStateKeyViolations", () => {
 });
 
 describe("RESERVED_STATE_KEYS", () => {
-  it("covers all 15 protocol keys", () => {
-    expect(RESERVED_STATE_KEYS).toHaveLength(15);
-    expect(new Set(RESERVED_STATE_KEYS).size).toBe(15);
+  it("covers all 16 protocol keys", () => {
+    expect(RESERVED_STATE_KEYS).toHaveLength(16);
+    expect(new Set(RESERVED_STATE_KEYS).size).toBe(16);
   });
 
   it("includes the __wasm_exec handoff key (webview live handoff, build log D6)", () => {
     expect(RESERVED_STATE_KEYS).toContain("__wasm_exec");
+  });
+
+  it("includes the __wasm_cancel key (stop-on-demand parity for wasm runs)", () => {
+    expect(RESERVED_STATE_KEYS).toContain("__wasm_cancel");
   });
 });
 
@@ -66,5 +70,17 @@ describe("withoutHandoffState", () => {
     expect(withoutHandoffState(spec)).toBe(spec);
     const noState = { root: "r", elements: {} } as Record<string, unknown>;
     expect(withoutHandoffState(noState)).toBe(noState);
+  });
+});
+
+describe("withoutHandoffState — __wasm_cancel", () => {
+  it("strips __wasm_cancel alongside __wasm_exec (control messages never persist)", () => {
+    const spec = {
+      root: "r",
+      elements: {},
+      state: { __runId: "x", __wasm_cancel: { type: "wasm-cancel", id: "1" } },
+    };
+    expect(withoutHandoffState(spec).state).toEqual({ __runId: "x" });
+    expect(spec.state.__wasm_cancel).toBeTruthy(); // non-mutating
   });
 });
