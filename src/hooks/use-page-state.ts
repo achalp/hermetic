@@ -47,6 +47,7 @@ interface PageState {
 
 export type PageAction =
   | { type: "QUERY"; question: string; mode?: QueryMode }
+  | { type: "PREPARING"; question: string; mode?: QueryMode }
   | { type: "STREAM_END" }
   | { type: "RESET" }
   | { type: "NEW_ANALYSIS" }
@@ -108,6 +109,23 @@ export function pageReducer(state: PageState, action: PageAction): PageState {
         ...state,
         currentQuestion: action.question,
         questionSeq: state.questionSeq + 1,
+        isAnalyzing: true,
+        currentMode: action.mode ?? "ask",
+        loadedSpec: null,
+        rerunCode: null,
+        rerunSql: null,
+      };
+    // Show the progress interstitial IMMEDIATELY, before any pre-dispatch
+    // work runs. The manifest pre-step (entity selection + on-demand schema
+    // extraction) can take MINUTES on a cold desktop-wasm install, and it
+    // used to run entirely before QUERY — the user clicked Analyze and the
+    // question page just sat there while the server log streamed progress.
+    // questionSeq is deliberately NOT bumped: the stream must not start
+    // until the pre-step has prepared the multi-entity context.
+    case "PREPARING":
+      return {
+        ...state,
+        currentQuestion: action.question,
         isAnalyzing: true,
         currentMode: action.mode ?? "ask",
         loadedSpec: null,
@@ -210,6 +228,11 @@ export function usePageState() {
     dispatch({ type: "QUERY", question, mode });
   }, []);
 
+  /** Flip to the progress view NOW; `query` follows when the pre-step is done. */
+  const beginPreparing = useCallback((question: string, mode: QueryMode = "ask") => {
+    dispatch({ type: "PREPARING", question, mode });
+  }, []);
+
   const streamEnd = useCallback(() => {
     dispatch({ type: "STREAM_END" });
   }, []);
@@ -226,5 +249,5 @@ export function usePageState() {
     dispatch({ type: "VIZ_SAVED" });
   }, []);
 
-  return { state, dispatch, query, streamEnd, resetPage, toggleSaved, vizSaved };
+  return { state, dispatch, query, beginPreparing, streamEnd, resetPage, toggleSaved, vizSaved };
 }

@@ -60,6 +60,11 @@ export const hermeticPaths = {
    * webview-reachable IPC command.
    */
   updatePendingFile: () => join(roots().dataRoot, "update-pending.json"),
+  /** Live progress of a shell-side update check (written by the shell). */
+  updateStateFile: () => join(roots().dataRoot, "update-state.json"),
+  /** Command channel TO the shell (written by /api/update, consumed+deleted
+   *  by the shell's watcher — the §7-safe replacement for updater IPC). */
+  updateCommandFile: () => join(roots().dataRoot, "update-command.json"),
   historyDir: () => join(roots().dataRoot, "history"),
   savedVizsDir: () => join(roots().dataRoot, "saved-vizs"),
   costDir: () => join(roots().dataRoot, "cost"),

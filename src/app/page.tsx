@@ -65,6 +65,7 @@ export default function Home() {
     state: pageState,
     dispatch,
     query: handleQuery,
+    beginPreparing,
     streamEnd: handleStreamEnd,
     resetPage,
     toggleSaved,
@@ -173,6 +174,7 @@ export default function Home() {
   const actions = useAnalysisActions({
     csvId: effectiveCsvId ?? csvId,
     prepareManifestForQuestion: source.prepareManifestForQuestion,
+    beginPreparing,
     analysis,
     dashboardRef,
     onSaved: handleSaved,
