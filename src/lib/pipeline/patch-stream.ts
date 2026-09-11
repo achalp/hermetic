@@ -20,6 +20,7 @@ import { parsePatchLines, readRunError } from "@/lib/pipeline/patch-lines";
 import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
 import { registerRun, endRun, type SandboxProgress } from "@/lib/pipeline/run-control";
 import type { WasmExecuteRequest } from "@/lib/sandbox/wasm/handoff";
+import type { WasmCancelRequest } from "@/lib/contracts/stream-state";
 import {
   openRunChannel,
   publishRunLine,
@@ -178,7 +179,7 @@ export async function runPatchStream(
     // abort — resolving the sidecar handoff alone would leave Python burning
     // CPU in the webview). Same first-patch guard as emitWasmExecute.
     function emitWasmCancel(id: string) {
-      const req = { type: "wasm-cancel" as const, id };
+      const req: WasmCancelRequest = { type: "wasm-cancel", id };
       if (!stateInitialized) {
         stateInitialized = true;
         emit(JSON.stringify({ op: "add", path: "/state", value: { __wasm_cancel: req } }) + "\n");

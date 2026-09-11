@@ -23,7 +23,7 @@
 import { parseSandboxOutput } from "../parse-output";
 import { errMessage } from "@/lib/logger";
 import { validateWorkerResult } from "./relay";
-import type { HandoffRegistry } from "./handoff-registry";
+import type { HandoffRegistry, HandoffProgress } from "./handoff-registry";
 import type {
   ExecutionResult,
   AdditionalFile,
@@ -73,7 +73,7 @@ export function createStreamWasmExecutor(o: StreamWasmExecutorOpts): WasmExecuto
     const { id, promise } = o.registry.create({
       ...(execOpts.onProgress
         ? {
-            onProgress: (p: { phase: string; detail?: string; fraction?: number }) =>
+            onProgress: (p: HandoffProgress) =>
               execOpts.onProgress!({
                 phase: p.phase,
                 ...(p.detail !== undefined ? { detail: p.detail } : {}),

@@ -122,11 +122,13 @@ describe("cancel — terminate an in-flight run (stop-on-demand parity)", () => 
     expect(post).not.toHaveBeenCalled();
   });
 
-  it("is idempotent and a no-op for unknown or already-finished ids", async () => {
+  it("is idempotent and a no-op for unknown, falsy, or already-finished ids", async () => {
     const run = vi.fn().mockResolvedValue({ exitCode: 0, output: "" });
     const post = vi.fn().mockResolvedValue(undefined);
     const h = createClientHandoff({ run, post });
 
+    h.cancel(undefined); // a malformed __wasm_cancel patch must be inert
+    h.cancel(null);
     h.cancel("never-started");
     h.handle(req("done1"));
     await flush();

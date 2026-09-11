@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getHandoffRegistry } from "@/lib/sandbox/wasm/handoff-singleton";
 import type { HandoffEnvelope } from "@/lib/sandbox/wasm/handoff-registry";
-import { validateWorkerProgress } from "@/lib/sandbox/wasm/relay";
+import { validateWorkerProgress, type WorkerProgressMessage } from "@/lib/sandbox/wasm/relay";
 import { logger } from "@/lib/logger";
 
 /**
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    const { kind: _kind, ...frame } = verdict.message;
+    const { kind: _kind, ...frame }: WorkerProgressMessage = verdict.message;
     getHandoffRegistry().progress(id, frame);
     return NextResponse.json({ ok: true });
   }
