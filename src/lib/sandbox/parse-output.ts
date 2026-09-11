@@ -314,7 +314,14 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
     );
     const execDiag = [
       `exitCode=${opts.exitCode} phase=${phaseNow ?? "(unknown)"}`,
-      cfg ?? "HERMETIC_DUCKDB_CFG: (not emitted — prelude config block did not run)",
+      // The wasm tier NEVER emits this line — its DuckDB config is fixed at
+      // worker boot (db.open filesystem flags, duckdb-worker.ts), with no PRAGMA
+      // block to self-report. The Docker wording here misdirected a live
+      // investigation (run 9cb7770b) into chasing a prelude that never existed.
+      cfg ??
+        (opts.runtime === "wasm"
+          ? "HERMETIC_DUCKDB_CFG: (n/a on the wasm tier — config is fixed at worker boot, not a prelude PRAGMA block)"
+          : "HERMETIC_DUCKDB_CFG: (not emitted — prelude config block did not run)"),
       `--- stderr tail ---\n${stderr.slice(-1500)}`,
       `--- stdout tail ---\n${stdout.slice(-800)}`,
     ].join("\n");

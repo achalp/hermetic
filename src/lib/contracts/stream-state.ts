@@ -144,9 +144,24 @@ export interface WasmExecuteRequest {
    * asset prefix; each alias binds a SQL-visible name to a token-scoped
    * `/api/wasm-range/<token>` URL. The worker therefore reads remote parquet by
    * byte range while only ever addressing THIS origin — it picks offsets, never a
-   * destination. Absent ⇒ the engine is not booted (a 41MB module).
+   * destination. Absent ⇒ the engine is not booted (a 41MB module). `spatial`
+   * additionally INSTALL+LOADs the vendored spatial extension at boot (geo runs;
+   * see codeNeedsSpatial) — absent/false, a non-geo run skips the download.
    */
-  duckdb?: { base: string; aliases: { name: string; url: string }[] };
+  duckdb?: { base: string; aliases: { name: string; url: string }[]; spatial?: boolean };
+}
+
+/**
+ * `/state/__wasm_cancel` — cancel a live webview execute-request (the wasm
+ * counterpart of Docker's `docker rm -f` on the run signal). The sidecar emits
+ * this when the run's AbortSignal fires; the browser terminates the worker for
+ * that id (killing the client alone would leave Python burning CPU in the
+ * webview — the same lesson as stream-exec's container kill).
+ */
+export interface WasmCancelRequest {
+  type: "wasm-cancel";
+  /** The execute-request id being cancelled. */
+  id: string;
 }
 
 /** Everything the orchestration layer writes into `spec.state`. */
@@ -169,6 +184,7 @@ export interface StreamState {
   __grounding?: GroundingReport;
   __synthesis?: SynthesisState;
   __wasm_exec?: WasmExecuteRequest;
+  __wasm_cancel?: WasmCancelRequest;
   __error?: string;
 }
 
@@ -188,6 +204,7 @@ export const RESERVED_STATE_KEYS = [
   "__grounding",
   "__synthesis",
   "__wasm_exec",
+  "__wasm_cancel",
   "__error",
 ] as const satisfies readonly (keyof StreamState)[];
 
@@ -224,8 +241,15 @@ export function findReservedStateKeyViolations(state: unknown): string[] {
  */
 export function withoutHandoffState<T extends { state?: unknown }>(spec: T): T {
   const state = spec?.state;
-  if (!state || typeof state !== "object" || !("__wasm_exec" in state)) return spec;
+  if (
+    !state ||
+    typeof state !== "object" ||
+    !("__wasm_exec" in state || "__wasm_cancel" in state)
+  ) {
+    return spec;
+  }
   const rest = { ...(state as Record<string, unknown>) };
   delete rest.__wasm_exec;
+  delete rest.__wasm_cancel;
   return { ...spec, state: rest };
 }

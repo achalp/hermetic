@@ -112,6 +112,71 @@ test.beforeAll(async () => {
     },
   };
 
+  // The geo-run shape (run 9cb7770b): boot requests the vendored spatial
+  // extension, then the code runs the exact statements the geo skill stack
+  // generates — its own `LOAD spatial` (a no-op against the boot-loaded
+  // extension) and ST_* calls through the shim. This is the acceptance gate for
+  // the local extension repo serving spatial: before it was vendored, the LOAD
+  // died as the anonymous _setThrew crash on the first statement.
+  const spatialRequest = {
+    type: "wasm-execute",
+    id: "e2e-spatial",
+    csvContent: "",
+    code: [
+      "import duckdb, json",
+      'duckdb.sql("LOAD spatial")',
+      'row = duckdb.sql("""',
+      "  SELECT ST_X(ST_Point(11.5, 48.1)) AS x,",
+      "         ST_Contains(ST_GeomFromText('POLYGON((0 0,0 2,2 2,2 0,0 0))'), ST_Point(1, 1)) AS inside,",
+      "         ST_Distance_Sphere(ST_Point(0, 0), ST_Point(0, 1)) AS meters",
+      '""").fetchone()',
+      "with open('/data/output.json', 'w') as f:",
+      "    json.dump({'x': row[0], 'inside': bool(row[1]), 'meters': row[2]}, f)",
+    ].join("\n"),
+    files: [],
+    duckdb: { base: "/duckdb/", aliases: [], spatial: true },
+  };
+
+  // The D9 staged-file bridge: DuckDB reads the inline-staged /data/input.csv
+  // by its Docker-identical path (registerFileBuffer under the hood). Before the
+  // bridge this failed with "file not found" — the audit's top prompt-facing gap.
+  const memfsRequest = {
+    type: "wasm-execute",
+    id: "e2e-memfs",
+    csvContent: "region,revenue\nnorth,100\nsouth,250\neast,175\n",
+    code: [
+      "import duckdb, json",
+      "row = duckdb.sql(\"SELECT COUNT(*) AS n, SUM(revenue) AS total FROM '/data/input.csv'\").fetchone()",
+      "with open('/data/output.json', 'w') as f:",
+      "    json.dump({'n': row[0], 'total': row[1]}, f)",
+    ].join("\n"),
+    files: [],
+    duckdb: { base: "/duckdb/", aliases: [] },
+  };
+
+  // The in-worker pre-flight lint, behaviorally: an undefined name must fail
+  // BEFORE execution with the Docker-identical retry message.
+  const lintRequest = {
+    type: "wasm-execute",
+    id: "e2e-lint",
+    csvContent: "",
+    code: "import json\nresult = undefined_helper(1)\n",
+    files: [],
+  };
+
+  // The 500k-row materialization cap, behaviorally: an unaggregated large
+  // result must fail with the retry-actionable message, not OOM the worker.
+  const rowcapRequest = {
+    type: "wasm-execute",
+    id: "e2e-rowcap",
+    csvContent: "",
+    code: ["import duckdb", "rows = duckdb.sql('SELECT * FROM range(600000)').fetchall()"].join(
+      "\n"
+    ),
+    files: [],
+    duckdb: { base: "/duckdb/", aliases: [] },
+  };
+
   server = createServer((req, res) => {
     const url = (req.url || "/").split("?")[0];
     if (url === "/exec-worker.js") {
@@ -130,6 +195,26 @@ test.beforeAll(async () => {
     if (url === "/join-request.json") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(joinRequest));
+      return;
+    }
+    if (url === "/spatial-request.json") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(spatialRequest));
+      return;
+    }
+    if (url === "/memfs-request.json") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(memfsRequest));
+      return;
+    }
+    if (url === "/lint-request.json") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(lintRequest));
+      return;
+    }
+    if (url === "/rowcap-request.json") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(rowcapRequest));
       return;
     }
     if (url.startsWith("/pyodide/"))
@@ -202,6 +287,117 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await new Promise<void>((r) => server.close(() => r()));
+});
+
+/** The vendored spatial extension, wherever the version-named repo dir landed. */
+const spatialVendored = (() => {
+  try {
+    const extRoot = join(DUCKDB_DIR, "ext");
+    return readdirSync(extRoot).some((v) =>
+      existsSync(join(extRoot, v, "wasm_mvp", "spatial.duckdb_extension.wasm"))
+    );
+  } catch {
+    return false;
+  }
+})();
+
+test("the geo-run shape: spatial INSTALL+LOADs from the local repo and ST_* functions execute", async ({
+  page,
+}) => {
+  test.skip(
+    !assetsPresent || !spatialVendored,
+    "pyodide / duckdb-wasm / spatial assets not present"
+  );
+  test.setTimeout(300_000); // cold pyodide + duckdb + spatial boot
+
+  await page.goto(base + "/?req=spatial-request");
+  await page.waitForFunction(() => (window as { __result?: unknown }).__result !== null, null, {
+    timeout: 280_000,
+  });
+  const result = (await page.evaluate(() => (window as { __result?: unknown }).__result)) as {
+    exitCode: number;
+    output: unknown;
+    stderr?: string;
+  };
+  // Before spatial was vendored this failed here, with the _setThrew shim's
+  // message in stderr (run 9cb7770b) — the assertion names the regression.
+  expect(result.stderr ?? "").toBe("");
+  expect(result.exitCode).toBe(0);
+  const out = (typeof result.output === "string" ? JSON.parse(result.output) : result.output) as {
+    x: number;
+    inside: boolean;
+    meters: number;
+  };
+  expect(out.x).toBeCloseTo(11.5, 6);
+  expect(out.inside).toBe(true);
+  // One degree of latitude ≈ 111 km — proves real geodesic math ran, not a stub.
+  expect(out.meters).toBeGreaterThan(110_000);
+  expect(out.meters).toBeLessThan(112_000);
+});
+
+test("the in-worker pre-flight lint catches an undefined name BEFORE execution (shared checker)", async ({
+  page,
+}) => {
+  test.skip(!assetsPresent, "pyodide / duckdb-wasm assets or fixture parquet not present");
+  test.setTimeout(300_000);
+
+  await page.goto(base + "/?req=lint-request");
+  await page.waitForFunction(() => (window as { __result?: unknown }).__result !== null, null, {
+    timeout: 280_000,
+  });
+  const result = (await page.evaluate(() => (window as { __result?: unknown }).__result)) as {
+    exitCode: number;
+    stderr?: string;
+  };
+  expect(result.exitCode).toBe(1);
+  // The Docker-identical retry-facing message, with the offending name.
+  expect(result.stderr ?? "").toContain("Undefined name(s)");
+  expect(result.stderr ?? "").toContain("`undefined_helper`");
+  expect(result.stderr ?? "").toContain("Do NOT change your analysis approach");
+});
+
+test("the 500k-row materialization cap fails legibly instead of OOMing the worker", async ({
+  page,
+}) => {
+  test.skip(!assetsPresent, "pyodide / duckdb-wasm assets or fixture parquet not present");
+  test.setTimeout(300_000);
+
+  await page.goto(base + "/?req=rowcap-request");
+  await page.waitForFunction(() => (window as { __result?: unknown }).__result !== null, null, {
+    timeout: 280_000,
+  });
+  const result = (await page.evaluate(() => (window as { __result?: unknown }).__result)) as {
+    exitCode: number;
+    stderr?: string;
+  };
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr ?? "").toContain("materialization cap");
+  expect(result.stderr ?? "").toContain("Aggregate inside DuckDB");
+});
+
+test("DuckDB reads the staged /data/input.csv by its Docker-identical path (D9 bridge)", async ({
+  page,
+}) => {
+  test.skip(!assetsPresent, "pyodide / duckdb-wasm assets or fixture parquet not present");
+  test.setTimeout(300_000);
+
+  await page.goto(base + "/?req=memfs-request");
+  await page.waitForFunction(() => (window as { __result?: unknown }).__result !== null, null, {
+    timeout: 280_000,
+  });
+  const result = (await page.evaluate(() => (window as { __result?: unknown }).__result)) as {
+    exitCode: number;
+    output: unknown;
+    stderr?: string;
+  };
+  expect(result.stderr ?? "").toBe("");
+  expect(result.exitCode).toBe(0);
+  const out = (typeof result.output === "string" ? JSON.parse(result.output) : result.output) as {
+    n: number;
+    total: number;
+  };
+  expect(out.n).toBe(3);
+  expect(out.total).toBe(525);
 });
 
 test("TWO ranged aliases JOIN in the production worker — the manifest-question shape (D40)", async ({

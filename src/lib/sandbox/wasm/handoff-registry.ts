@@ -27,12 +27,26 @@ export interface PendingHandoff {
   promise: Promise<HandoffEnvelope>;
 }
 
+/** A validated live progress frame relayed from the worker (see relay.ts). */
+export interface HandoffProgress {
+  phase: string;
+  detail?: string;
+  fraction?: number;
+}
+
 export interface HandoffRegistry {
-  create(): PendingHandoff;
+  create(opts?: { onProgress?: (p: HandoffProgress) => void }): PendingHandoff;
   /** Fulfill a pending handoff with the browser's envelope. False if the id is unknown/already settled. */
   resolve(id: string, envelope: HandoffEnvelope): boolean;
   /** Fail a pending handoff (timeout, closed webview, bad payload). False if unknown/settled. */
   reject(id: string, reason: string): boolean;
+  /**
+   * Deliver a live progress frame to a still-pending handoff's onProgress.
+   * False if the id is unknown/settled or the handoff registered no listener.
+   * The callback is invoked inside try/catch — a throwing consumer must never
+   * break the registry (progress is best-effort by contract).
+   */
+  progress(id: string, frame: HandoffProgress): boolean;
   /** Number of still-pending handoffs (for tests / leak checks). */
   size(): number;
 }
@@ -40,6 +54,7 @@ export interface HandoffRegistry {
 interface Entry {
   resolve: (e: HandoffEnvelope) => void;
   reject: (err: Error) => void;
+  onProgress?: (p: HandoffProgress) => void;
 }
 
 /**
@@ -51,7 +66,7 @@ export function createHandoffRegistry(nextId: () => string): HandoffRegistry {
   const pending = new Map<string, Entry>();
 
   return {
-    create(): PendingHandoff {
+    create(opts): PendingHandoff {
       const id = nextId();
       let entry!: Entry;
       const promise = new Promise<HandoffEnvelope>((resolve, reject) => {
@@ -64,6 +79,7 @@ export function createHandoffRegistry(nextId: () => string): HandoffRegistry {
             pending.delete(id);
             reject(err);
           },
+          ...(opts?.onProgress ? { onProgress: opts.onProgress } : {}),
         };
       });
       pending.set(id, entry);
@@ -81,6 +97,17 @@ export function createHandoffRegistry(nextId: () => string): HandoffRegistry {
       const entry = pending.get(id);
       if (!entry) return false;
       entry.reject(new Error(reason));
+      return true;
+    },
+
+    progress(id, frame): boolean {
+      const entry = pending.get(id);
+      if (!entry?.onProgress) return false;
+      try {
+        entry.onProgress(frame);
+      } catch {
+        // Best-effort by contract: a throwing consumer never breaks the registry.
+      }
       return true;
     },
 

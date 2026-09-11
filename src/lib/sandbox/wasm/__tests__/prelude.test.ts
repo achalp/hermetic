@@ -123,4 +123,49 @@ describe("detectUnsupportedFeatures — WASM capability pre-check (spec §6)", (
     const r = detectUnsupportedFeatures("pd.read_parquet('/data/input.parquet')");
     expect(r).toEqual({ imports: [], reasons: [] });
   });
+
+  it("does NOT flag LOAD/INSTALL of vendored extensions (parquet, spatial)", () => {
+    const code =
+      "duckdb.sql('LOAD spatial')\nduckdb.sql('INSTALL parquet')\nduckdb.sql('LOAD parquet')";
+    expect(detectUnsupportedFeatures(code)).toEqual({ imports: [], reasons: [] });
+  });
+
+  it("flags LOAD of a non-vendored DuckDB extension (the anonymous _setThrew trap, run 9cb7770b)", () => {
+    const r = detectUnsupportedFeatures("duckdb.sql('LOAD icu')");
+    expect(r.imports).toEqual([]);
+    expect(r.reasons).toHaveLength(1);
+    expect(r.reasons[0]).toMatch(/'icu'/);
+    expect(r.reasons[0]).toMatch(/route to Docker/);
+  });
+
+  it("flags INSTALL of a non-vendored extension once, deduping the LOAD of the same name", () => {
+    const r = detectUnsupportedFeatures("duckdb.sql('INSTALL h3')\nduckdb.sql('LOAD h3')");
+    expect(r.reasons).toHaveLength(1);
+    expect(r.reasons[0]).toMatch(/'h3'/);
+  });
+
+  it("does NOT false-flag lowercase prose like '# load data' (keywords are case-sensitive)", () => {
+    const r = detectUnsupportedFeatures("# load data from parquet\n# then install deps\nx = 1");
+    expect(r).toEqual({ imports: [], reasons: [] });
+  });
+});
+
+describe("parity additions (2026-09 audit)", () => {
+  it("flags a seaborn import — no wheel in the Pyodide distribution", () => {
+    const r = detectUnsupportedFeatures("import seaborn as sns\n");
+    expect(r.imports).toEqual(["seaborn"]);
+    expect(r.reasons[0]).toMatch(/seaborn/);
+  });
+
+  it("the prelude pins the AGG matplotlib backend for the DOM-less worker", () => {
+    expect(buildWasmPrelude()).toContain('MPLBACKEND", "AGG"');
+  });
+
+  it("progress() bridges to the JS hook when present and stays harmless without it", () => {
+    const p = buildWasmPrelude();
+    expect(p).toContain("__hermeticProgress");
+    // Node parity executor has no hook: getattr-None guard + blanket except.
+    expect(p).toContain('getattr(_js, "__hermeticProgress", None)');
+    expect(p).toContain("except Exception:");
+  });
 });

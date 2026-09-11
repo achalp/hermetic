@@ -59,3 +59,42 @@ describe("POST /api/wasm-result", () => {
     expect(Number.isNaN(env.exitCode)).toBe(true);
   });
 });
+
+describe("POST /api/wasm-result — kind:'progress' frames", () => {
+  it("delivers a relay-validated frame to the pending handoff's onProgress", async () => {
+    const frames: unknown[] = [];
+    const { id, promise } = getHandoffRegistry().create({
+      onProgress: (f) => frames.push(f),
+    });
+    void promise.catch(() => {});
+    const res = await post(`http://x/api/wasm-result?id=${id}`, {
+      kind: "progress",
+      phase: "scanning",
+      detail: "west shard",
+      fraction: 0.25,
+    });
+    expect(res.status).toBe(200);
+    expect(frames).toEqual([{ phase: "scanning", detail: "west shard", fraction: 0.25 }]);
+    getHandoffRegistry().reject(id, "test done");
+  });
+
+  it("400s an invalid progress frame (relay gate) without touching the handoff", async () => {
+    const frames: unknown[] = [];
+    const { id, promise } = getHandoffRegistry().create({
+      onProgress: (f) => frames.push(f),
+    });
+    void promise.catch(() => {});
+    const res = await post(`http://x/api/wasm-result?id=${id}`, { kind: "progress", phase: "" });
+    expect(res.status).toBe(400);
+    expect(frames).toEqual([]);
+    getHandoffRegistry().reject(id, "test done");
+  });
+
+  it("a progress frame for an unknown id is a 200 no-op (advisory channel, never retried)", async () => {
+    const res = await post("http://x/api/wasm-result?id=ghost", {
+      kind: "progress",
+      phase: "scanning",
+    });
+    expect(res.status).toBe(200);
+  });
+});

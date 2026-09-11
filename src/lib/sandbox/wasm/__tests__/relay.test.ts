@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   validateWorkerResult,
+  validateWorkerProgress,
   measureDepth,
   DEFAULT_RELAY_LIMITS,
   type RelayLimits,
@@ -137,5 +138,52 @@ describe("validateWorkerResult — the untrusted-worker relay gate", () => {
   it("uses DEFAULT_RELAY_LIMITS when none supplied", () => {
     expect(validateWorkerResult(okMsg()).ok).toBe(true);
     expect(DEFAULT_RELAY_LIMITS.maxBytes).toBeGreaterThan(0);
+  });
+});
+
+describe("validateWorkerProgress — the tiny display-only frame gate", () => {
+  it("accepts a minimal frame and a full frame", () => {
+    expect(validateWorkerProgress({ kind: "progress", phase: "scanning" })).toMatchObject({
+      ok: true,
+      message: { kind: "progress", phase: "scanning" },
+    });
+    const v = validateWorkerProgress({
+      kind: "progress",
+      phase: "scanning",
+      detail: "west shard",
+      fraction: 0.5,
+    });
+    expect(v).toMatchObject({ ok: true, message: { detail: "west shard", fraction: 0.5 } });
+  });
+
+  it("rejects wrong kind, missing/empty phase, and non-string detail", () => {
+    expect(validateWorkerProgress({ kind: "result", phase: "x" }).ok).toBe(false);
+    expect(validateWorkerProgress({ kind: "progress", phase: "" }).ok).toBe(false);
+    expect(validateWorkerProgress({ kind: "progress" }).ok).toBe(false);
+    expect(validateWorkerProgress({ kind: "progress", phase: "x", detail: 1 }).ok).toBe(false);
+    expect(validateWorkerProgress("nope").ok).toBe(false);
+  });
+
+  it("CLAMPS oversized strings and out-of-range fractions instead of rejecting", () => {
+    const v = validateWorkerProgress({
+      kind: "progress",
+      phase: "p".repeat(1000),
+      detail: "d".repeat(5000),
+      fraction: 7,
+    });
+    expect(v.ok).toBe(true);
+    if (v.ok) {
+      expect(v.message.phase).toHaveLength(120);
+      expect(v.message.detail).toHaveLength(500);
+      expect(v.message.fraction).toBe(1);
+    }
+    const neg = validateWorkerProgress({ kind: "progress", phase: "x", fraction: -3 });
+    if (neg.ok) expect(neg.message.fraction).toBe(0);
+  });
+
+  it("drops a non-finite fraction silently (frame still forwards)", () => {
+    const v = validateWorkerProgress({ kind: "progress", phase: "x", fraction: NaN });
+    expect(v.ok).toBe(true);
+    if (v.ok) expect("fraction" in v.message).toBe(false);
   });
 });

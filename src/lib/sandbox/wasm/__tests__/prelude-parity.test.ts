@@ -62,9 +62,17 @@ describe("wasm prelude binds every public docker-prelude helper", () => {
   });
 });
 
-describe("conditional scipy load (D39)", () => {
-  it("the worker loads scipy exactly when the run's code imports it", () => {
-    expect(WASM_WORKER_SOURCE).toMatch(/scipy/);
-    expect(WASM_WORKER_SOURCE).toMatch(/loadPackage\(\["scipy"\]\)/);
+describe("conditional heavy-package loads (D39, generalized for Docker parity)", () => {
+  it("the worker loads scipy/matplotlib/scikit-learn exactly when the run's code imports them", () => {
+    // Import-name regex → distribution package name; each is opt-in so a
+    // pandas-only run never pays tens of MB it doesn't use.
+    expect(WASM_WORKER_SOURCE).toContain('scipy\\b/, "scipy"');
+    expect(WASM_WORKER_SOURCE).toContain('matplotlib\\b/, "matplotlib"');
+    expect(WASM_WORKER_SOURCE).toContain('sklearn\\b/, "scikit-learn"');
+    expect(WASM_WORKER_SOURCE).toContain("await pyodide.loadPackage(wanted)");
+  });
+
+  it("seaborn stays guarded, not loaded — it has no wheel in the Pyodide distribution", () => {
+    expect(WASM_WORKER_SOURCE).not.toMatch(/"seaborn"/);
   });
 });

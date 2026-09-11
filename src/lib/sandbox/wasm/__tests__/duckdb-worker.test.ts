@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   DUCKDB_BOOT_FN_SOURCE,
   codeNeedsDuckDb,
+  codeNeedsSpatial,
   DUCKDB_PY_SHIM,
   DUCKDB_BUNDLE_FILE,
   DUCKDB_WASM_FILE,
@@ -62,6 +63,16 @@ describe("DUCKDB_BOOT_FN_SOURCE — CSP-compatible asset loading", () => {
     // 4th arg of registerFileURL; false buffers the entire file (D18: 525MB / 14.5s).
     expect(src).toContain("duck.DuckDBDataProtocol.HTTP, true)");
   });
+
+  it("INSTALL+LOADs the vendored spatial extension only when the run asks (3rd boot arg)", () => {
+    // A repo miss must fail at BOOT with a legible message, never mid-analysis as
+    // the anonymous _setThrew crash (run 9cb7770b) — and a non-geo run must not
+    // pay for the largest extension in the repo.
+    expect(src).toContain("__hermeticBootDuckDb(base, aliases, spatial)");
+    expect(src).toContain(
+      'if (spatial) { conn.query("INSTALL spatial"); conn.query("LOAD spatial"); }'
+    );
+  });
 });
 
 describe("codeNeedsDuckDb — booting a 41MB engine must be opt-in", () => {
@@ -74,6 +85,21 @@ describe("codeNeedsDuckDb — booting a 41MB engine must be opt-in", () => {
     expect(codeNeedsDuckDb("import pandas as pd")).toBe(false);
     expect(codeNeedsDuckDb("# duckdb would be nice here")).toBe(false);
     expect(codeNeedsDuckDb('df.to_csv("duckdb.csv")')).toBe(false);
+  });
+});
+
+describe("codeNeedsSpatial — the spatial extension download must be opt-in", () => {
+  it("is true for LOAD/INSTALL spatial and for ST_* function usage", () => {
+    expect(codeNeedsSpatial("duckdb.sql('LOAD spatial')")).toBe(true);
+    expect(codeNeedsSpatial("duckdb.sql('INSTALL spatial; LOAD spatial')")).toBe(true);
+    // Belt for code that skips the explicit LOAD and leans on autoload.
+    expect(codeNeedsSpatial("duckdb.sql('SELECT ST_Contains(a, b) FROM t')")).toBe(true);
+    expect(codeNeedsSpatial("q = f'ST_Distance_Sphere(ST_Point({lon}, {lat}), p)'")).toBe(true);
+  });
+  it("is false for non-geo code, and for mere mentions", () => {
+    expect(codeNeedsSpatial("duckdb.sql('SELECT 1').df()")).toBe(false);
+    expect(codeNeedsSpatial("# spatial analysis would be nice")).toBe(false);
+    expect(codeNeedsSpatial("st_louis = df[df.city == 'STL']")).toBe(false);
   });
 });
 
@@ -104,5 +130,19 @@ describe("DUCKDB_PY_SHIM — the surface generated code actually calls", () => {
     ]);
     expect(JSON.parse(`[\n  \n]`)).toEqual([]);
     expect(DUCKDB_PY_SHIM).toContain("_json.loads(raw)");
+  });
+});
+
+describe("bounded materialization + staged-file bridge (parity audit)", () => {
+  it("caps materialized rows with retry-actionable instructions (the portable .df() guard)", () => {
+    expect(src).toContain("const MAX_ROWS = 500000");
+    expect(src).toContain("table.numRows > MAX_ROWS");
+    expect(src).toContain("Aggregate inside DuckDB");
+  });
+
+  it("exposes the staged-file registrar with drop-first re-registration (D9)", () => {
+    expect(src).toContain("__hermeticDuckRegister");
+    expect(src).toContain("db.registerFileBuffer(name, bytes)");
+    expect(src).toContain("db.dropFile(name)");
   });
 });

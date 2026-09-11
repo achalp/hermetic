@@ -55,3 +55,40 @@ describe("useWasmHandoff", () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("useWasmHandoff — __wasm_cancel", () => {
+  it("aborts the in-flight run's signal when a cancel for its id lands in the spec", async () => {
+    let seenSignal: AbortSignal | undefined;
+    const run = vi.fn(
+      (_r: WasmExecuteRequest, signal?: AbortSignal) =>
+        new Promise<HandoffEnvelope>((_res, rej) => {
+          seenSignal = signal;
+          signal?.addEventListener("abort", () => rej(new Error("cancelled")));
+        })
+    );
+    const post = vi.fn().mockResolvedValue(undefined);
+
+    const specCancel = (id: string): Spec =>
+      ({
+        root: "",
+        elements: {},
+        state: { __wasm_exec: req(id), __wasm_cancel: { type: "wasm-cancel", id } },
+      }) as unknown as Spec;
+
+    const { rerender } = renderHook(({ spec }) => useWasmHandoff(spec, { run, post }), {
+      initialProps: { spec: specWith(req("c9")) },
+    });
+    await act(async () => {
+      await flush();
+    });
+    expect(seenSignal?.aborted).toBe(false);
+
+    await act(async () => {
+      rerender({ spec: specCancel("c9") });
+      await flush();
+    });
+    expect(seenSignal?.aborted).toBe(true);
+    // Cancelled runs post nothing — the sidecar settled on its own abort path.
+    expect(post).not.toHaveBeenCalled();
+  });
+});

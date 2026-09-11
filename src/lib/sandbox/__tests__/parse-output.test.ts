@@ -735,3 +735,32 @@ describe("pythonErrorSummary — logs must say WHAT failed, not just where", () 
     expect(pythonErrorSummary(chained)).toContain("RuntimeError: what the caller actually sees");
   });
 });
+
+describe("runtime-aware DuckDB-config diag (parity audit)", () => {
+  const io = (files: Record<string, string>) => async (p: string) => files[p] ?? null;
+
+  it("a wasm failure reports the honest n/a wording, never the Docker prelude accusation", async () => {
+    const res = await parseSandboxOutput({
+      runtime: "wasm",
+      executionMs: 42,
+      exitCode: 1,
+      readFile: io({ "/data/stderr.txt": "Traceback: boom" }),
+    });
+    expect(res.success).toBe(false);
+    if (res.success) return;
+    expect(res.execDiag).toContain("(n/a on the wasm tier");
+    expect(res.execDiag).not.toContain("prelude config block did not run");
+  });
+
+  it("a docker failure keeps the original not-emitted wording", async () => {
+    const res = await parseSandboxOutput({
+      runtime: "docker",
+      executionMs: 42,
+      exitCode: 1,
+      readFile: io({ "/data/stderr.txt": "Traceback: boom" }),
+    });
+    expect(res.success).toBe(false);
+    if (res.success) return;
+    expect(res.execDiag).toContain("prelude config block did not run");
+  });
+});

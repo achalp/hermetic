@@ -122,3 +122,51 @@ export function validateWorkerResult(
     },
   };
 }
+
+/**
+ * A live progress frame from the worker (the wasm counterpart of the Docker
+ * prelude's stdout heartbeat). Far stricter than the result envelope: progress
+ * is DISPLAY-ONLY — three short strings/numbers — so anything outside the tiny
+ * shape below is dropped, never forwarded. Strings are length-CLAMPED rather
+ * than rejected (a chatty phase label must not kill liveness reporting).
+ */
+export interface WorkerProgressMessage {
+  kind: "progress";
+  phase: string;
+  detail?: string;
+  fraction?: number;
+}
+
+export type ProgressVerdict =
+  { ok: true; message: WorkerProgressMessage } | { ok: false; reason: string };
+
+const PROGRESS_PHASE_MAX = 120;
+const PROGRESS_DETAIL_MAX = 500;
+
+export function validateWorkerProgress(raw: unknown): ProgressVerdict {
+  if (!isPlainRecord(raw)) return { ok: false, reason: "not an object" };
+  if (raw.kind !== "progress") {
+    return { ok: false, reason: `unexpected kind: ${String(raw.kind)}` };
+  }
+  if (typeof raw.phase !== "string" || raw.phase.trim() === "") {
+    return { ok: false, reason: "phase must be a non-empty string" };
+  }
+  if (raw.detail !== undefined && typeof raw.detail !== "string") {
+    return { ok: false, reason: "detail must be a string" };
+  }
+  const fraction =
+    typeof raw.fraction === "number" && Number.isFinite(raw.fraction)
+      ? Math.min(1, Math.max(0, raw.fraction))
+      : undefined;
+  return {
+    ok: true,
+    message: {
+      kind: "progress",
+      phase: raw.phase.slice(0, PROGRESS_PHASE_MAX),
+      ...(typeof raw.detail === "string"
+        ? { detail: raw.detail.slice(0, PROGRESS_DETAIL_MAX) }
+        : {}),
+      ...(fraction !== undefined ? { fraction } : {}),
+    },
+  };
+}

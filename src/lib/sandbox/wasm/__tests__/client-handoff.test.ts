@@ -97,3 +97,55 @@ describe("createClientHandoff", () => {
     expect(post).toHaveBeenCalledWith("noerr", expect.objectContaining({ stderr: "stringy" }));
   });
 });
+
+describe("cancel — terminate an in-flight run (stop-on-demand parity)", () => {
+  it("aborts the injected run's signal and posts NO envelope for a cancelled id", async () => {
+    let seenSignal: AbortSignal | undefined;
+    const run = vi.fn(
+      (_r: unknown, signal?: AbortSignal) =>
+        new Promise((_res, rej) => {
+          seenSignal = signal;
+          signal?.addEventListener("abort", () => rej(new Error("cancelled")));
+        })
+    );
+    const post = vi.fn().mockResolvedValue(undefined);
+    const h = createClientHandoff({ run: run as never, post });
+
+    h.handle(req("c1"));
+    await flush();
+    expect(seenSignal?.aborted).toBe(false);
+
+    h.cancel("c1");
+    await flush();
+    expect(seenSignal?.aborted).toBe(true);
+    // The sidecar settled on its own abort path — a posted envelope would 404.
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("is idempotent and a no-op for unknown or already-finished ids", async () => {
+    const run = vi.fn().mockResolvedValue({ exitCode: 0, output: "" });
+    const post = vi.fn().mockResolvedValue(undefined);
+    const h = createClientHandoff({ run, post });
+
+    h.cancel("never-started");
+    h.handle(req("done1"));
+    await flush();
+    expect(post).toHaveBeenCalledTimes(1);
+    h.cancel("done1"); // finished — nothing in flight
+    h.cancel("done1");
+    await flush();
+    expect(post).toHaveBeenCalledTimes(1); // no extra effects
+  });
+
+  it("a run failure that was NOT a cancel still answers the sidecar", async () => {
+    const run = vi.fn().mockRejectedValue(new Error("worker died"));
+    const post = vi.fn().mockResolvedValue(undefined);
+    const h = createClientHandoff({ run, post });
+    h.handle(req("f1"));
+    await flush();
+    expect(post).toHaveBeenCalledWith(
+      "f1",
+      expect.objectContaining({ exitCode: 1, stderr: expect.stringContaining("worker died") })
+    );
+  });
+});

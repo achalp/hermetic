@@ -3,7 +3,8 @@ import { codeNeedsNetwork, codeDoesRemoteIo } from "./docker-utils";
 import { logger } from "@/lib/logger";
 import { RUNTIME_CAPABILITIES, unsupportedCapabilityError } from "./capabilities";
 import { getWarmManager } from "./warm-sandbox";
-import { codeNeedsDuckDb } from "./wasm/duckdb-worker";
+import { codeNeedsDuckDb, codeNeedsSpatial } from "./wasm/duckdb-worker";
+import { detectUnsupportedFeatures } from "./wasm/prelude";
 import { getInputRegistry } from "./wasm/input-singleton";
 import type { ExecutionResult, AdditionalFile, SandboxRunHooks } from "@/lib/contracts/execution";
 export type { AdditionalFile };
@@ -41,7 +42,10 @@ export type WasmExecutor = (
      * `/api/wasm-range/<token>` URL, so generated SQL never contains the upstream
      * object-store URL. Omitted ⇒ the engine is not booted (it is a 41MB module).
      */
-    duckdb?: { base: string; aliases: { name: string; url: string }[] };
+    duckdb?: { base: string; aliases: { name: string; url: string }[]; spatial?: boolean };
+    signal?: AbortSignal;
+    onProgress?: (p: import("@/lib/contracts/execution").SandboxProgress) => void;
+    failureHints?: () => import("@/lib/contracts/execution").SkillFailureHint[];
   }
 ) => Promise<ExecutionResult>;
 
@@ -225,6 +229,22 @@ export function executeSandbox(
         execution_ms: 0,
       });
     }
+    // Pre-check the code for features the WASM tier structurally cannot serve
+    // (non-vendored DuckDB extensions, packages with no Pyodide wheel, in-worker
+    // remote reads). Failing HERE — legibly, in 0ms, and RETRYABLY (no errorKind:
+    // the reasons feed the retry prompt, so the next generation can comply) —
+    // beats the alternative observed in run 9cb7770b: minutes inside the engine
+    // ending in an anonymous _setThrew crash, three times over.
+    const unsupported = detectUnsupportedFeatures(code);
+    if (unsupported.reasons.length > 0) {
+      return Promise.resolve({
+        success: false,
+        error:
+          "The generated code uses features the WASM sandbox cannot serve:\n- " +
+          unsupported.reasons.join("\n- "),
+        execution_ms: 0,
+      });
+    }
     // Host-materialized inputs (e.g. a remote source fetched via the Rust egress core
     // then converted to CSV — build log D11/D13) are delivered to the CSP-locked worker
     // as same-origin token URLs it fetches into its FS (option B), never a path and
@@ -249,11 +269,20 @@ export function executeSandbox(
     // so generated SQL addresses a same-origin name, never the upstream object store.
     const duckAliases = opts.wasmDuckDbAliases ?? [];
     const needsDuckDb = duckAliases.length > 0 || codeNeedsDuckDb(code);
+    // Execution-control parity with Docker: the run signal governs lifetime
+    // (stop-on-demand, no wall clock), progress frames reach the same
+    // onProgress hook the Docker stream feeds, and skill failure hints inform
+    // the parsed error exactly as they do docker-side.
     const result = opts.wasmExecutor(csvContent, code, {
       additionalFiles,
       geojsonContent,
       fetchInputs,
-      ...(needsDuckDb ? { duckdb: { base: "/duckdb/", aliases: duckAliases } } : {}),
+      ...(needsDuckDb
+        ? { duckdb: { base: "/duckdb/", aliases: duckAliases, spatial: codeNeedsSpatial(code) } }
+        : {}),
+      ...(hooks?.signal ? { signal: hooks.signal } : {}),
+      ...(hooks?.onProgress ? { onProgress: hooks.onProgress } : {}),
+      ...(hooks?.failureHints ? { failureHints: hooks.failureHints } : {}),
     });
     return tokens.length
       ? result.finally(() => tokens.forEach((t) => getInputRegistry().release(t)))

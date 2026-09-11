@@ -60,6 +60,7 @@ import {
   setRunFailureHints,
   getRunFailureHints,
   ambientWasmExecutor,
+  ambientSandboxHooks,
 } from "@/lib/pipeline/run-control";
 import { getHandoffRegistry } from "@/lib/sandbox/wasm/handoff-singleton";
 
@@ -221,5 +222,53 @@ describe("ambientWasmExecutor (live webview handoff)", () => {
       // the failed dispatch left no pending handoff behind
       expect(getHandoffRegistry().size()).toBe(0);
     });
+  });
+
+  it("a Stop from OUTSIDE the run's async context still cancels the browser worker (eager runId capture)", async () => {
+    // Node dispatches AbortSignal listeners in the ABORTER's context — the stop
+    // route, which never enters runWithRunId. An ambient getRunId() inside
+    // emitCancel read undefined and silently dropped the cancel, leaving the
+    // webview worker burning CPU after a Stop (found by the fresh-agent audit;
+    // invisible to the handoff unit tests, which inject emitCancel directly).
+    let runId!: string;
+    const cancels: string[] = [];
+    let inFlight!: ReturnType<ReturnType<typeof ambientWasmExecutor>>;
+    await inRun(async (id) => {
+      runId = id;
+      const controller = registerRun(
+        id,
+        undefined,
+        () => {}, // a live webview stream that accepts the execute-request
+        (cancelledId) => cancels.push(cancelledId)
+      );
+      inFlight = ambientWasmExecutor()("a,b\n1,2\n", "print(1)", { signal: controller.signal });
+    });
+
+    // OUTSIDE any run scope — exactly the stop endpoint's reality.
+    await stopRun(runId);
+    const result = await inFlight;
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.errorKind).toBe("stopped");
+    expect(cancels).toHaveLength(1);
+    expect(getHandoffRegistry().size()).toBe(0);
+    endRun(runId);
+  });
+
+  it("a progress frame arriving OUTSIDE the run's context still reaches the run's onProgress", async () => {
+    // WASM progress frames arrive on their own /api/wasm-result POST — no run
+    // ALS context. The ambient hooks must capture the runId eagerly, or every
+    // production frame dies at the last hop (found by the fresh-agent audit).
+    let runId!: string;
+    const frames: unknown[] = [];
+    let hooks!: ReturnType<typeof ambientSandboxHooks>;
+    await inRun(async (id) => {
+      runId = id;
+      registerRun(id, (p) => frames.push(p));
+      hooks = ambientSandboxHooks();
+    });
+
+    hooks.onProgress?.({ phase: "scanning", detail: "west shard" });
+    expect(frames).toEqual([{ phase: "scanning", detail: "west shard" }]);
+    endRun(runId);
   });
 });

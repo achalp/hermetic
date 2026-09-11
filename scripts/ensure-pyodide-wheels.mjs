@@ -22,11 +22,18 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = join(ROOT, "node_modules", "pyodide");
 
-const WANT = ["numpy", "pandas", "scipy"];
+// matplotlib + scikit-learn joined scipy as on-demand loads (runtime parity
+// with the Docker image); their wheels must ship in the desktop bundle too.
+const WANT = ["numpy", "pandas", "scipy", "matplotlib", "scikit-learn"];
 
 const have = () => {
   const files = readdirSync(DIST);
-  return WANT.filter((p) => files.some((f) => f.startsWith(`${p}-`) && f.endsWith(".whl")));
+  // PEP 427 normalizes '-' to '_' in wheel filenames: the scikit-learn wheel
+  // is scikit_learn-1.8.0-….whl, so match on the normalized spelling.
+  return WANT.filter((p) => {
+    const prefix = `${p.replace(/-/g, "_")}-`;
+    return files.some((f) => f.replace(/-/g, "_").startsWith(prefix) && f.endsWith(".whl"));
+  });
 };
 
 if (have().length === WANT.length) {
