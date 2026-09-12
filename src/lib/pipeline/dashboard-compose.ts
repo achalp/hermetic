@@ -51,6 +51,7 @@ import { type ValidStateKeys } from "@/lib/llm/resolve-placeholders";
 import { auditComputedKeys, type PatchLike } from "@/lib/pipeline/computed-key-audit";
 import { assembleSpecFromPatches } from "@/lib/pipeline/assemble-spec";
 import { repairReachability } from "@/lib/compose/reachability";
+import { lintScalarProps, recoverScalar } from "@/lib/compose/scalar-props";
 import { auditControllerRecipes } from "@/lib/pipeline/controller-recipe-audit";
 import { repairControllerRecipes } from "@/lib/pipeline/controller-recipe-repair";
 import {
@@ -457,6 +458,42 @@ export async function composeAndStreamDashboard(args: {
       }
     }
 
+    // SCALAR VALUE SLOTS. A prop the catalog declares scalar (or an untyped
+    // `value` slot) holding a record reaches the user as the literal text
+    // "[object Object]". Applied to the WHOLE assembled spec rather than to the
+    // injector that produced the observed one, because any binding resolving to a
+    // record lands in the same place. Repairs to the headline number when the
+    // record contains one unambiguously; reports rather than invents otherwise.
+    {
+      const assembledForProps = assembleSpecFromPatches(composedPatches as never);
+      if (assembledForProps?.elements) {
+        const { fixed, unrenderable } = lintScalarProps(
+          assembledForProps.elements as Record<string, unknown>
+        );
+        for (const f of fixed) {
+          const patch = {
+            op: "replace",
+            path: `/elements/${f.elementId}/props/${f.prop}`,
+            value: f.recovered,
+          };
+          composedPatches.push(patch as PatchLike);
+          emit(JSON.stringify(patch) + "\n");
+          logger.warn("Repaired a non-scalar value slot", {
+            element: f.elementId,
+            prop: f.prop,
+            recovered: f.recovered,
+          });
+        }
+        for (const u of unrenderable) {
+          logger.error("Value slot holds an unrenderable object (would show [object Object])", {
+            element: u.elementId,
+            prop: u.prop,
+            objectKeys: u.objectKeys,
+          });
+        }
+      }
+    }
+
     // REACHABILITY. The renderer walks root through `children`, so a child id the
     // composer never emitted silently deletes that whole branch — and the run
     // still reports ok. Run 175e9f0a lost nine of twelve elements (every chart,
@@ -686,7 +723,22 @@ export async function composeAndStreamDashboard(args: {
         // Injection dedupe: a tile whose VALUE is already shown under any
         // label is not missing (run-24 injected a duplicate of an existing
         // total under a different label).
-        const v = resolveTileValue(tile.binding);
+        const raw = resolveTileValue(tile.binding);
+        // Compare on the SCALAR a record reduces to, not on String(record).
+        // String({pearson_r: 0.2637, ...}) is "[object Object]", which matches
+        // nothing — so the observed duplicate tile passed the very check meant to
+        // stop it, AND rendered as [object Object]. One cause, two symptoms.
+        const v =
+          raw !== null && typeof raw === "object" && !Array.isArray(raw)
+            ? (recoverScalar(raw as Record<string, unknown>) ?? raw)
+            : raw;
+        if (v !== null && typeof v === "object") {
+          logger.warn("Skipping tile injection: value is not renderable as a scalar", {
+            label: tile.label,
+            binding: tile.binding,
+          });
+          return false;
+        }
         if (v !== undefined && shownTileValues.has(String(v))) return false;
         return true;
       });

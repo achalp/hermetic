@@ -221,17 +221,29 @@ export function GroundingAdvisories({ grounding }: { grounding: GroundingReport 
   for (const c of grounding.contradictions ?? []) {
     items.push(`Something didn't line up: ${c}.`);
   }
-  if ((grounding.unnarratedFindings?.length ?? 0) > 0) {
+  // COUNT up top, identifiers behind the reveal. This line used to join the raw
+  // finding ids straight into the sentence, and a correlation dashboard printed
+  // twenty of them as prose — "king_county_hdi_presence,
+  // king_county_homeless_presence, datasets_overlap_sufficient, …" — which is
+  // engineering vocabulary in the one block whose whole purpose is plain
+  // language. The two-tier idiom this component already documents (human rollup
+  // above, raw diagnostics under "technical details") now applies to every site
+  // here, not just findingIssues.
+  const unnarrated = grounding.unnarratedFindings ?? [];
+  if (unnarrated.length > 0) {
     items.push(
-      `Computed but not called out in the write-up: ${grounding.unnarratedFindings!.join(", ")}.`
+      `${unnarrated.length} computed figure${unnarrated.length === 1 ? " was" : "s were"} not called out in the write-up.`
     );
   }
   if (grounding.questionPrimaryMiss) {
     items.push(
-      `The number that answers your question (${grounding.questionPrimaryMiss}) isn't shown as a headline stat.`
+      `The number that answers your question (${humanizeFindingId(grounding.questionPrimaryMiss)}) isn't shown as a headline stat.`
     );
   }
-  const details = grounding.findingIssues ?? [];
+  const details = [
+    ...(grounding.findingIssues ?? []),
+    ...(unnarrated.length > 0 ? [`Computed but not narrated: ${unnarrated.join(", ")}`] : []),
+  ];
   if (items.length === 0 && details.length === 0) return null;
   // Human prose up top (a plain rollup per category); the raw engineering
   // diagnostics ($finding: bindings, lint kinds) live behind a "technical
@@ -276,6 +288,17 @@ export function GroundingAdvisories({ grounding }: { grounding: GroundingReport 
       )}
     </div>
   );
+}
+
+/**
+ * An internal finding id rendered as something a person can read:
+ * `king_county_hdi_presence` -> "king county hdi presence".
+ *
+ * Used where a name genuinely helps the reader locate the figure. Lists of ids
+ * belong behind the technical-details reveal instead — see the caller.
+ */
+function humanizeFindingId(id: string): string {
+  return id.replace(/[_.]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
 /** Roll raw finding-issue diagnostics up into user-language category lines. */
