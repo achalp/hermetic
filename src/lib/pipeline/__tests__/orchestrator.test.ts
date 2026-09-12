@@ -21,6 +21,18 @@ vi.mock("@/lib/llm/client", () => ({
   cachedSystem: vi.fn((s: string) => s),
 }));
 vi.mock("@/lib/diagnostics/failure-log", () => ({ recordFailure: vi.fn(async () => {}) }));
+// runPipeline renders runtime-specific skill addenda, so it asks for the ACTIVE
+// sandbox runtime — and getRuntimeConfig() reads data/runtime-config.json from
+// disk. Left unmocked, this unit test's prompt (and its duration) depend on the
+// machine's real config file: it passed locally and timed out at 5s in CI under
+// coverage instrumentation, failing the release gate. Host-derived input belongs
+// behind a seam in tests, not read from the developer's own state.
+vi.mock("@/lib/runtime-config", () => ({
+  getActiveSandboxRuntime: () => "docker",
+  getActiveModels: () => ({ codeGen: "claude-sonnet-4-6", uiCompose: "claude-sonnet-4-6" }),
+  getRuntimeConfig: () => ({}),
+  getProfileDepth: () => 50_000,
+}));
 
 import { runPipeline } from "@/lib/pipeline/orchestrator";
 import { generateAnalysisCode } from "@/lib/llm/code-generation";
