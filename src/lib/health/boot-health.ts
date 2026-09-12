@@ -11,7 +11,8 @@
  * would fail for that reason, so an empty log is a genuine all-clear.
  */
 import { logger, errMessage } from "@/lib/logger";
-import { getActiveSandboxRuntime, setRuntimeConfig } from "@/lib/runtime-config";
+import { getRuntimeConfig, setRuntimeConfig } from "@/lib/runtime-config";
+import { envConfig } from "@/lib/harness-slot";
 import { getActiveProvider } from "@/lib/llm/client";
 import { run } from "@/lib/sandbox/docker-utils";
 
@@ -51,7 +52,16 @@ async function checkSandbox(): Promise<void> {
     logger.info("boot health: Docker daemon reachable");
     return;
   }
-  if (getActiveSandboxRuntime() === "docker") {
+  // Warn on INTENT, not on the resolved runtime. Persisting dockerAvailable:false
+  // above makes resolveActiveRuntime answer "wasm", so keying the warning off the
+  // ACTIVE runtime made it unreachable in the very case it exists for: a web user
+  // whose daemon is merely stopped would be moved to a different engine in
+  // silence. Intent is an explicit pin, or — on a channel with no wasm fallback
+  // configured (the web path) — the absence of one, where Docker is the norm.
+  const pinned = getRuntimeConfig().sandboxRuntime;
+  const channelFallback = envConfig().HERMETIC_DEFAULT_RUNTIME;
+  const expectedDocker = pinned === "docker" || (!pinned && channelFallback !== "wasm");
+  if (expectedDocker) {
     logger.warn(
       "boot health: the Docker daemon is not reachable — analyses will fail until Docker is running"
     );

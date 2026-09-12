@@ -2,9 +2,20 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const getActiveProvider = vi.fn();
 const run = vi.fn();
+const getRuntimeConfig = vi.fn(() => ({}) as Record<string, unknown>);
+const setRuntimeConfig = vi.fn();
+const envConfigMock: Record<string, string | undefined> = {};
 
 vi.mock("@/lib/llm/client", () => ({ getActiveProvider: () => getActiveProvider() }));
 vi.mock("@/lib/sandbox/docker-utils", () => ({ run: (...a: unknown[]) => run(...a) }));
+vi.mock("@/lib/runtime-config", () => ({
+  getRuntimeConfig: () => getRuntimeConfig(),
+  setRuntimeConfig: (p: unknown) => setRuntimeConfig(p),
+}));
+vi.mock("@/lib/harness-slot", async (orig) => {
+  const actual = await orig<typeof import("@/lib/harness-slot")>();
+  return { ...actual, envConfig: () => envConfigMock };
+});
 
 import { logBootHealth } from "@/lib/health/boot-health";
 import { logger } from "@/lib/logger";
@@ -16,6 +27,10 @@ beforeEach(() => {
   vi.restoreAllMocks(); // drop prior logger spies so calls don't accumulate
   getActiveProvider.mockReset();
   run.mockReset();
+  getRuntimeConfig.mockReset();
+  getRuntimeConfig.mockReturnValue({});
+  setRuntimeConfig.mockReset();
+  for (const k of Object.keys(envConfigMock)) delete envConfigMock[k];
   warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
   info = vi.spyOn(logger, "info").mockImplementation(() => {});
   // Sensible healthy defaults; each test overrides what it exercises.
@@ -62,5 +77,45 @@ describe("logBootHealth", () => {
       throw new Error("sync boom");
     });
     await expect(logBootHealth()).resolves.toBeUndefined();
+  });
+});
+
+describe("logBootHealth — whose Docker absence is worth a warning", () => {
+  /**
+   * Regression: keying this off the ACTIVE runtime made the warning unreachable.
+   * Boot health persists dockerAvailable:false, resolveActiveRuntime then answers
+   * "wasm", and the warning for a stopped daemon never fired — the web user who
+   * needs it most got silence and a different engine. It keys off INTENT instead.
+   */
+  it("still warns on the web path (no wasm fallback configured, nothing pinned)", async () => {
+    run.mockResolvedValue({ stdout: "", stderr: "Cannot connect", exitCode: 1 });
+    await logBootHealth();
+    expect(warnedAbout("Docker daemon is not reachable")).toBe(true);
+  });
+
+  it("warns when the user PINNED docker, whatever the channel default", async () => {
+    envConfigMock.HERMETIC_DEFAULT_RUNTIME = "wasm";
+    getRuntimeConfig.mockReturnValue({ sandboxRuntime: "docker" });
+    run.mockResolvedValue({ stdout: "", stderr: "Cannot connect", exitCode: 1 });
+    await logBootHealth();
+    expect(warnedAbout("Docker daemon is not reachable")).toBe(true);
+  });
+
+  it("does NOT warn on a channel that falls back to wasm — the packaged desktop app", async () => {
+    // It announced "analyses will fail until Docker is running" on every launch
+    // while running fine. A warning that is wrong every time trains people to
+    // ignore the ones that are right.
+    envConfigMock.HERMETIC_DEFAULT_RUNTIME = "wasm";
+    getRuntimeConfig.mockReturnValue({});
+    run.mockResolvedValue({ stdout: "", stderr: "Cannot connect", exitCode: 1 });
+    await logBootHealth();
+    expect(warnedAbout("Docker daemon is not reachable")).toBe(false);
+    expect(info).toHaveBeenCalledWith(expect.stringContaining("built-in engine"));
+  });
+
+  it("records the probe so runtime resolution has a real value to use", async () => {
+    run.mockResolvedValue({ stdout: "", stderr: "Cannot connect", exitCode: 1 });
+    await logBootHealth();
+    expect(setRuntimeConfig).toHaveBeenCalledWith({ dockerAvailable: false });
   });
 });
