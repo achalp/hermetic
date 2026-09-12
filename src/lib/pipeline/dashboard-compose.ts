@@ -52,6 +52,7 @@ import { auditComputedKeys, type PatchLike } from "@/lib/pipeline/computed-key-a
 import { assembleSpecFromPatches } from "@/lib/pipeline/assemble-spec";
 import { repairReachability } from "@/lib/compose/reachability";
 import { lintScalarProps, recoverScalar } from "@/lib/compose/scalar-props";
+import { lintSeriesScale } from "@/lib/compose/series-scale";
 import { auditControllerRecipes } from "@/lib/pipeline/controller-recipe-audit";
 import { repairControllerRecipes } from "@/lib/pipeline/controller-recipe-repair";
 import {
@@ -453,6 +454,44 @@ export async function composeAndStreamDashboard(args: {
           proseLintIssues.set("compose_answer_missing", {
             kind: "no_narrative",
             detail: "the ANSWER resolved empty and could not be re-realized",
+          });
+        }
+      }
+    }
+
+    // SERIES SCALE. A single-axis chart renders every series against one range,
+    // so a series orders of magnitude smaller than its neighbour is a flat line
+    // along the floor — in the legend, saying nothing. The chart's own rows
+    // answer whether its series share a scale, so this is a lint over DATA rather
+    // than a prompt rule. Two groups become the DualAxisChart the catalog already
+    // ships for this; three or more get one chart each, because two axes cannot
+    // show three scales without flattening one again.
+    {
+      const assembledForScale = assembleSpecFromPatches(composedPatches as never);
+      if (assembledForScale?.elements) {
+        const els = assembledForScale.elements as Record<string, unknown>;
+        const { rewritten, added } = lintSeriesScale(els);
+        for (const [id, element] of Object.entries(added)) {
+          const patch = { op: "add", path: `/elements/${id}`, value: element };
+          composedPatches.push(patch as PatchLike);
+          emit(JSON.stringify(patch) + "\n");
+        }
+        for (const r of rewritten) {
+          // Replace the element wholesale: a split turns the original id into the
+          // LayoutColumn holding the new charts, so parents keep pointing at it
+          // and the tree stays reachable.
+          const patch = {
+            op: "replace",
+            path: `/elements/${r.elementId}`,
+            value: els[r.elementId],
+          };
+          composedPatches.push(patch as PatchLike);
+          emit(JSON.stringify(patch) + "\n");
+          logger.warn("Chart series do not share a scale — rewrote it", {
+            element: r.elementId,
+            kind: r.kind,
+            ratio: Math.round(r.ratio),
+            groups: r.groups,
           });
         }
       }
