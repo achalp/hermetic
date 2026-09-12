@@ -137,6 +137,44 @@ test.beforeAll(async () => {
     duckdb: { base: "/duckdb/", aliases: [], spatial: true },
   };
 
+  // Remote files are registered under their object-store KEY, which for Overture
+  // carries `key=value` segments — a shape no other case here covers, and one
+  // DuckDB could plausibly mistake for hive partitioning.
+  //
+  // This case was written while chasing run 3885e46a (every Overture-shaped geo
+  // run on the desktop wasm tier died with `stoi: no conversion` inside
+  // read_parquet, identically across all three retries). It PASSES, so it does
+  // NOT reproduce that bug — the alias name is not the cause, just as the hive
+  // flag was not (attempt 2 dropped it and failed the same way) and the path
+  // shape was not (native DuckDB reads it in all three hive modes). It stays as
+  // the parity assertion for key-shaped alias names; 3885e46a remains open, and
+  // reproducing it needs a REAL Overture file — GeoParquet footer metadata,
+  // STRUCT/GEOMETRY columns — read through the range route, plus the version skew
+  // below ruled in or out: native DuckDB is 1.2.2 while the vendored bundle is
+  // @duckdb/duckdb-wasm 1.33.1-dev57.0, a prerelease of a newer core.
+  const keyPathAliasRequest = {
+    type: "wasm-execute",
+    id: "e2e-keypath-alias",
+    csvContent: "",
+    code: [
+      "import duckdb, json",
+      "ALIAS = 'release/2026-08-19.0/theme=divisions/type=division_area/part-0.parquet'",
+      "rows = duckdb.sql(f\"SELECT COUNT(*) FROM read_parquet(['{ALIAS}'])\").fetchone()",
+      "with open('/data/output.json', 'w') as f:",
+      "    json.dump({'n': rows[0]}, f)",
+    ].join("\n"),
+    files: [],
+    duckdb: {
+      base: "/duckdb/",
+      aliases: [
+        {
+          name: "release/2026-08-19.0/theme=divisions/type=division_area/part-0.parquet",
+          url: "/api/wasm-range/tok",
+        },
+      ],
+    },
+  };
+
   // The D9 staged-file bridge: DuckDB reads the inline-staged /data/input.csv
   // by its Docker-identical path (registerFileBuffer under the hood). Before the
   // bridge this failed with "file not found" — the audit's top prompt-facing gap.
@@ -218,6 +256,11 @@ test.beforeAll(async () => {
     if (url === "/spatial-request.json") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(spatialRequest));
+      return;
+    }
+    if (url === "/keypath-request.json") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(keyPathAliasRequest));
       return;
     }
     if (url === "/memfs-request.json") {
@@ -527,4 +570,33 @@ test("DuckDB in the production worker extracts a schema over ranged reads (D36 g
   // And it actually READ by ranges — several partial GETs, none the whole object.
   const rangedGets = rangeLedger.filter((e) => e.method === "GET" && e.range);
   expect(rangedGets.length).toBeGreaterThan(2);
+});
+
+test("a ranged alias named as an OBJECT KEY (key=value segments) reads without an engine error", async ({
+  page,
+}) => {
+  test.skip(!assetsPresent, "pyodide / duckdb-wasm assets or fixture parquet not present");
+  test.setTimeout(300_000);
+
+  await page.goto(base + "/?req=keypath-request");
+  await page.waitForFunction(() => (window as { __result?: unknown }).__result !== null, null, {
+    timeout: 280_000,
+  });
+  const result = (await page.evaluate(() => (window as { __result?: unknown }).__result)) as {
+    exitCode: number;
+    output: unknown;
+    stderr?: string;
+  };
+
+  // The regression this pins: `stoi: no conversion` out of read_parquet. It is
+  // asserted by NAME because the message is the whole problem — it carries no
+  // column, value or statement context, which is why three retries regenerated
+  // identical code instead of converging.
+  expect(result.stderr ?? "").not.toContain("stoi");
+  expect(result.stderr ?? "").toBe("");
+  expect(result.exitCode).toBe(0);
+  const out = (typeof result.output === "string" ? JSON.parse(result.output) : result.output) as {
+    n: number;
+  };
+  expect(out.n).toBeGreaterThan(0);
 });
