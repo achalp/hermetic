@@ -49,6 +49,8 @@ import {
 import type { FindingIssue } from "@/lib/contracts/findings";
 import { type ValidStateKeys } from "@/lib/llm/resolve-placeholders";
 import { auditComputedKeys, type PatchLike } from "@/lib/pipeline/computed-key-audit";
+import { assembleSpecFromPatches } from "@/lib/pipeline/assemble-spec";
+import { repairReachability } from "@/lib/compose/reachability";
 import { auditControllerRecipes } from "@/lib/pipeline/controller-recipe-audit";
 import { repairControllerRecipes } from "@/lib/pipeline/controller-recipe-repair";
 import {
@@ -452,6 +454,39 @@ export async function composeAndStreamDashboard(args: {
             detail: "the ANSWER resolved empty and could not be re-realized",
           });
         }
+      }
+    }
+
+    // REACHABILITY. The renderer walks root through `children`, so a child id the
+    // composer never emitted silently deletes that whole branch — and the run
+    // still reports ok. Run 175e9f0a lost nine of twelve elements (every chart,
+    // every StatCard, the narrative) to one dangling `dc-main`, leaving a title
+    // and a caveat; the analysis under it was perfect and correctly bound. The
+    // only previous guard was a prompt SELF-CHECK asking the model to verify its
+    // own tree.
+    //
+    // Emitted as a PATCH, not a local fixup, so the live render and every
+    // downstream assembly (history save, MCP, CLI — all of which replay this same
+    // patch list) get the same repaired tree from one place.
+    const assembled = assembleSpecFromPatches(composedPatches as never);
+    if (assembled) {
+      const { report, synthesized, unresolved } = repairReachability(assembled);
+      for (const [id, element] of Object.entries(synthesized)) {
+        const patch = { op: "add", path: `/elements/${id}`, value: element };
+        composedPatches.push(patch as PatchLike);
+        emit(JSON.stringify(patch) + "\n");
+        logger.warn("Composed spec referenced an undefined child — synthesized its container", {
+          missing: id,
+          reattached: element.children.length,
+        });
+      }
+      if (unresolved.length > 0) {
+        // Not repairable without guessing the intended layout. Never silent: a
+        // spec whose elements are mostly unreachable is a structural failure.
+        logger.error("Composed spec has unreachable elements that could not be re-attached", {
+          missing: report.missing,
+          orphaned: unresolved,
+        });
       }
     }
 
