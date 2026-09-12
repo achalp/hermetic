@@ -104,20 +104,35 @@ fn spawn_sidecar(app: &tauri::App, dir: &PathBuf) -> std::io::Result<(Child, Str
             base
         } else {
             let home = std::env::var("HOME").unwrap_or_default();
+            // ORDER IS THE POLICY. A GUI launch inherits only
+            // /usr/bin:/bin:/usr/sbin:/sbin, so every directory that can supply a
+            // `docker` CLI is listed here — and the order decides WHICH
+            // implementation the sidecar runs on a machine that has several.
+            //
+            // Preference: colima, then Rancher Desktop, then Docker Desktop last.
+            // Docker Desktop is deprecated under some corporate policies, and it
+            // symlinks its CLI into /usr/local/bin — so a naive ordering that put
+            // the general bin dirs first would silently select the deprecated tool
+            // on any machine where both are installed. Hence the colima/Rancher
+            // locations sit AHEAD of /usr/local/bin, and Docker Desktop's own two
+            // locations come after everything.
+            //
+            // The listing itself is not defensive guesswork: observed on a dev
+            // machine with a working daemon, `docker` lived at ~/.rd/bin and was
+            // invisible to the sidecar — the same scar as `which claude` below.
             let extras = [
+                // 1. colima — its companion CLI is homebrew's `docker` formula.
                 "/opt/homebrew/bin".to_string(),
+                // 2. Rancher Desktop.
+                format!("{home}/.rd/bin"),
+                // General user/tool dirs (claude CLI lives here; /usr/local/bin
+                // may also hold Docker Desktop symlinks, which is why it follows
+                // the two preferred locations above).
                 "/usr/local/bin".to_string(),
                 format!("{home}/.claude/local"),
                 format!("{home}/.local/bin"),
                 format!("{home}/bin"),
-                // Docker CLI locations. A GUI launch inherits a bare PATH, and
-                // docker is frequently NOT in homebrew: Rancher Desktop installs
-                // to ~/.rd/bin and Docker Desktop to ~/.docker/bin or inside the
-                // app bundle. Observed on a dev machine with a working daemon:
-                // `docker` at ~/.rd/bin, invisible to the sidecar — the same scar
-                // as `which claude` above, which is why these are listed rather
-                // than assumed.
-                format!("{home}/.rd/bin"),
+                // 3. Docker Desktop, LAST — a fallback, never a preference.
                 format!("{home}/.docker/bin"),
                 "/Applications/Docker.app/Contents/Resources/bin".to_string(),
             ];

@@ -143,6 +143,32 @@ domain, every dtype, every meta field, correlations and sample rows identical. T
 only difference was the ORDER of equal-count `top_values`, which is pre-existing
 nondeterminism (the old profiler differs from itself across runs), not an engine change.
 
+## Docker CLI preference: colima → Rancher Desktop → Docker Desktop
+
+A GUI-launched desktop app inherits only `/usr/bin:/bin:/usr/sbin:/sbin`, so
+`src-tauri/src/lib.rs` appends every directory that can supply a `docker` CLI.
+**The order in that list is policy, not cosmetics**: it decides which
+implementation runs on a machine that has more than one.
+
+1. `/opt/homebrew/bin` — colima's companion CLI (homebrew's `docker` formula)
+2. `~/.rd/bin` — Rancher Desktop
+3. general dirs (`/usr/local/bin`, `~/.claude/local`, `~/.local/bin`, `~/bin`)
+4. `~/.docker/bin`, `/Applications/Docker.app/Contents/Resources/bin` — Docker
+   Desktop, LAST
+
+Docker Desktop is deprecated under some corporate policies and it symlinks its
+CLI into `/usr/local/bin`, so an ordering that put the general dirs first would
+silently select the deprecated tool wherever both are installed. `start.sh`
+mirrors the same preference in both its install guidance and its daemon-start
+attempts (colima → Rancher → Docker Desktop → systemd).
+
+NOT TEST-PINNED: CI runs `cargo test` only in `rust/egress-core`; the Tauri job
+`cargo check`s `src-tauri`, so nothing executes this ordering. It is documented
+here because a careless reorder would be invisible — and because the listing was
+itself derived from a live failure: on a dev machine with a working daemon,
+`docker` lived at `~/.rd/bin` and was invisible to the sidecar, so the desktop app
+found no Docker on the machine of the person who asked for Docker support.
+
 ## Known runtime gaps (open)
 
 | Gap                                                     | Detail                                                                                                                                                                                                                                                                                                      |
