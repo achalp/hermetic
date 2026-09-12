@@ -1002,6 +1002,9 @@ export async function composeAndStreamDashboard(args: {
         // Enables the directional-contradiction check: a story that denies
         // the engine's own computed trend verdict gets flagged.
         results: (executionResult.results ?? {}) as Record<string, unknown>,
+        // ...and the data-shape checks: an outlier dominating a trend, a
+        // non-significant slope beside a large move, a tautological correlation.
+        chartData: (executionResult.chart_data ?? {}) as Record<string, unknown>,
         ...(opts.findings
           ? {
               findings: {

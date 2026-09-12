@@ -49,6 +49,7 @@ export interface ExtractedNumber {
 // API boundary); re-exported here for existing consumers.
 export type { GroundingReport } from "@/lib/contracts/grounding";
 import type { GroundingReport } from "@/lib/contracts/grounding";
+import { buildDataSanityCaveats } from "@/lib/pipeline/data-sanity";
 
 // ── Collecting the grounded value set ─────────────────────────────────
 
@@ -331,6 +332,14 @@ export interface VerifyArgs {
    */
   results?: Record<string, unknown>;
   /**
+   * chart_data (series id -> rows), for the DATA-SHAPE checks in data-sanity.ts:
+   * a single-period outlier that dominates a trend statistic, and a
+   * non-significant slope beside a large endpoint move. These ask what the data
+   * itself should have forced the write-up to disclose, which the prose-oriented
+   * checks above cannot see. Optional; absent callers skip them.
+   */
+  chartData?: Record<string, unknown>;
+  /**
    * Declared-findings inputs (spec §3.4/§3.5), computed by the compose
    * layer (it alone sees pre-resolution bindings): declared names, cited
    * names, coherence issue details, and the question-primary miss (if any).
@@ -488,6 +497,16 @@ export function verifyGrounding(args: VerifyArgs): GroundingReport {
         }
       }
     }
+  }
+
+  // Data-shape caveats ride the SAME advisory channel as the directional
+  // contradiction above, so everything the reader should know about the numbers
+  // arrives in one place rather than in a second block with its own rules.
+  for (const caveat of buildDataSanityCaveats({
+    ...(args.results ? { results: args.results } : {}),
+    ...(args.chartData ? { chartData: args.chartData } : {}),
+  })) {
+    contradictions.push(caveat);
   }
 
   // §3.4 declared-but-ignored + §3.5 question-primary + coherence issues —
