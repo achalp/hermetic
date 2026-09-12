@@ -177,6 +177,24 @@ test.beforeAll(async () => {
     duckdb: { base: "/duckdb/", aliases: [] },
   };
 
+  // cxa-capture acceptance: a REAL C++ exception (glob matching no registered
+  // files → duckdb::IOException) must surface with the ORIGINAL DuckDB message
+  // decoded, not the anonymous "could not report it" crash that burned runs
+  // 9cb7770b and 9ee0e56b. This posts straight to the worker, bypassing the
+  // sidecar's pre-flight glob guard on purpose — the engine path is the thing
+  // under test.
+  const cxaRequest = {
+    type: "wasm-execute",
+    id: "e2e-cxa",
+    csvContent: "",
+    code: [
+      "import duckdb",
+      "duckdb.sql(\"SELECT * FROM read_parquet('no/such/prefix-*.parquet')\").fetchall()",
+    ].join("\n"),
+    files: [],
+    duckdb: { base: "/duckdb/", aliases: [] },
+  };
+
   server = createServer((req, res) => {
     const url = (req.url || "/").split("?")[0];
     if (url === "/exec-worker.js") {
@@ -215,6 +233,11 @@ test.beforeAll(async () => {
     if (url === "/rowcap-request.json") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(rowcapRequest));
+      return;
+    }
+    if (url === "/cxa-request.json") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(cxaRequest));
       return;
     }
     if (url.startsWith("/pyodide/"))
@@ -333,6 +356,30 @@ test("the geo-run shape: spatial INSTALL+LOADs from the local repo and ST_* func
   // One degree of latitude ≈ 111 km — proves real geodesic math ran, not a stub.
   expect(out.meters).toBeGreaterThan(110_000);
   expect(out.meters).toBeLessThan(112_000);
+});
+
+test("setThrew wiring: a real C++ engine exception surfaces as an ORDINARY DuckDB error", async ({
+  page,
+}) => {
+  test.skip(!assetsPresent, "pyodide / duckdb-wasm assets or fixture parquet not present");
+  test.setTimeout(300_000);
+
+  await page.goto(base + "/?req=cxa-request");
+  await page.waitForFunction(() => (window as { __result?: unknown }).__result !== null, null, {
+    timeout: 280_000,
+  });
+  const result = (await page.evaluate(() => (window as { __result?: unknown }).__result)) as {
+    exitCode: number;
+    stderr?: string;
+  };
+  expect(result.exitCode).toBe(1);
+  const stderr = result.stderr ?? "";
+  // With _setThrew wired to the module's real export, the C++ exception reaches
+  // DuckDB's own handlers and comes back as a NORMAL typed query error — the
+  // anonymous "internal error" crash (runs 9cb7770b / 9ee0e56b) must be gone.
+  expect(stderr, stderr.slice(-600)).toMatch(/IO Error|No files found/);
+  expect(stderr).not.toContain("raised an internal error");
+  expect(stderr).not.toContain("_setThrew");
 });
 
 test("the in-worker pre-flight lint catches an undefined name BEFORE execution (shared checker)", async ({

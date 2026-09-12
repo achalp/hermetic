@@ -11,6 +11,8 @@ interface LocalFileBrowserProps {
   /** Load a remote cloud Parquet URL (s3:// or https://). Anon unless creds given. */
   onSelectRemote: (url: string, creds?: RemoteParquetCreds, force?: boolean) => Promise<void>;
   isExtracting?: boolean;
+  /** Live connect phase for manifest sources (Docker: ~2 min of schema extraction). */
+  connectProgress?: { phase: string; detail: string } | null;
 }
 
 /* File-type badge palette (categorical data colors, like chart palettes — not themed) */
@@ -28,6 +30,7 @@ export function LocalFileBrowser({
   onSelect,
   onSelectRemote,
   isExtracting,
+  connectProgress,
 }: LocalFileBrowserProps) {
   const [mode, setMode] = useState<"local" | "cloud">("local");
   const [currentPath, setCurrentPath] = useState<string>("");
@@ -600,29 +603,46 @@ export function LocalFileBrowser({
               const enabled =
                 !isExtracting && (mode === "cloud" ? !!cloudUrl.trim() : !!selectedEntry);
               return (
-                <button
-                  onClick={mode === "cloud" ? handleLoadCloud : handleSelect}
-                  disabled={!enabled}
-                  style={{
-                    padding: "8px 16px",
-                    borderRadius: 6,
-                    border: "none",
-                    background: enabled ? "var(--color-accent)" : "var(--color-border-default)",
-                    color: enabled ? "white" : "var(--color-t-tertiary)",
-                    cursor: enabled ? "pointer" : "not-allowed",
-                    fontFamily: "inherit",
-                    fontSize: 13,
-                    fontWeight: 600,
-                  }}
-                >
-                  {isExtracting
-                    ? mode === "cloud"
-                      ? "Reading schema..."
-                      : "Extracting schema..."
-                    : mode === "cloud"
-                      ? "Load"
-                      : "Select"}
-                </button>
+                <>
+                  {isExtracting && connectProgress && (
+                    <span
+                      role="status"
+                      aria-live="polite"
+                      style={{
+                        alignSelf: "center",
+                        marginRight: "auto",
+                        fontSize: 12,
+                        color: "var(--color-t-secondary)",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      {connectProgress.detail}
+                    </span>
+                  )}
+                  <button
+                    onClick={mode === "cloud" ? handleLoadCloud : handleSelect}
+                    disabled={!enabled}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: 6,
+                      border: "none",
+                      background: enabled ? "var(--color-accent)" : "var(--color-border-default)",
+                      color: enabled ? "white" : "var(--color-t-tertiary)",
+                      cursor: enabled ? "pointer" : "not-allowed",
+                      fontFamily: "inherit",
+                      fontSize: 13,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {isExtracting
+                      ? mode === "cloud"
+                        ? "Reading schema..."
+                        : "Extracting schema..."
+                      : mode === "cloud"
+                        ? "Load"
+                        : "Select"}
+                  </button>
+                </>
               );
             })()}
           </div>

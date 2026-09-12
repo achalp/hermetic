@@ -61,7 +61,26 @@ export interface BooleanMeta {
   representation: "true/false" | "0/1" | "yes/no" | "mixed";
 }
 
-export type ColumnMeta = NumericMeta | DateMeta | CategoricalMeta | BooleanMeta;
+/**
+ * A column the profiler deliberately did NOT read. Remote GEOMETRY/BLOB columns
+ * are the case: their bytes ARE the cost of the scan (pulling the geometry
+ * column pushed one Overture entity past a 60s budget), so they are described
+ * and skipped.
+ *
+ * This is a real variant rather than a null `meta` for two reasons: every
+ * consumer switches on `kind`, so a null is a landmine (it crashed the
+ * suggestion heuristics and would have crashed every manifest prompt build);
+ * and "unmeasured" must be SAYABLE. Fabricating a zeroed CategoricalMeta would
+ * tell a planner this column has 0 distinct values, which is a measurement
+ * nobody took.
+ */
+export interface UnprofiledMeta {
+  kind: "unprofiled";
+  /** Why it was skipped — surfaced verbatim to prompts and the rail. */
+  reason: string;
+}
+
+export type ColumnMeta = NumericMeta | DateMeta | CategoricalMeta | BooleanMeta | UnprofiledMeta;
 
 export type SchemaMode = "metadata" | "sample";
 
@@ -71,6 +90,35 @@ export interface CSVColumn {
   null_count: number;
   meta: ColumnMeta;
   sample_values: string[];
+}
+
+/**
+ * HOW a schema's statistics were obtained — provenance, so a consumer can tell a
+ * whole-dataset fact from a slice of one.
+ *
+ * This matters because a remote Parquet profile reads a PREFIX (`LIMIT n` over
+ * the leading row groups), not a random sample: reading a random sample over S3
+ * would egress the entire dataset. A prefix is only a valid sample for a column
+ * when the physical row order carries no information about it — and Overture is
+ * sorted spatially, so the leading rows of a global buildings table are one
+ * geographic patch. Ranges and distinct counts from such a prefix are not noisy
+ * estimates of the dataset; they describe a different population, and the bias
+ * does NOT shrink with depth (500k of 2.5B rows is 0.02% — a slightly bigger
+ * patch of the same corner).
+ *
+ * So the honest fix is to spread the read and to say which it was, rather than to
+ * buy more rows. `spread_sample` reads a slice from files spread ACROSS the
+ * listing — the same bytes as a prefix, but spanning the dataset, so it is the
+ * remote default; `leading_prefix` remains for a single-file source, where there
+ * is nothing to spread across. Local sources get `random_sample` (DuckDB
+ * `USING SAMPLE`, genuinely random, because the data is already here);
+ * `full_scan` when the source fit inside the depth; `metadata` when nothing was
+ * read at all (the describe tier).
+ */
+export interface ProfileBasis {
+  kind: "metadata" | "full_scan" | "random_sample" | "spread_sample" | "leading_prefix";
+  /** Rows the statistics were computed over (0 for `metadata`). */
+  rows_examined: number;
 }
 
 export interface CSVSchema {
@@ -87,6 +135,8 @@ export interface CSVSchema {
   detected_domain?: DataDomain;
   /** Top pairwise correlations between numeric columns */
   correlations?: ColumnCorrelation[];
+  /** How the statistics below were obtained (absent on older cached schemas). */
+  profile_basis?: ProfileBasis;
   /** Where the data came from */
   source_type?: "file" | "warehouse";
   /** Which warehouse type (only set when source_type === "warehouse") */

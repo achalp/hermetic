@@ -1,15 +1,17 @@
 /**
  * Connect-a-manifest orchestration (spec §5): fetch through the egress core →
- * adapt → same-host gate → per-entity cache check → eager-within-budget
- * introspection → store + register. Pure orchestration with injected deps
- * (the ingest.ts pattern) so the whole flow is unit-testable without docker,
- * a network, or the schema cache on disk.
+ * adapt → same-host gate → per-entity cache check → (optional) eager-within-
+ * budget introspection → store + register. Pure orchestration with injected
+ * deps (the ingest.ts pattern) so the whole flow is unit-testable without
+ * docker, a network, or the schema cache on disk.
  *
  * Two decisions from review live here:
- *  - the 60 s EAGER BUDGET: entities introspected inside it are ready at
- *    connect; the rest stay pending and extract lazily on first touch — so a
- *    small manifest is fully eager by construction, and a large one still
- *    connects instantly with hints from the manifest itself;
+ *  - PROFILING IS OPT-IN, via deps.eagerCapable(). The web composition root
+ *    passes false: connect lists the catalog and does the free cache pass, so
+ *    connecting is O(1) whether the catalog holds 4 tables or 1000, and the
+ *    ~50s-per-entity value profile happens when a question needs an entity or
+ *    the user asks for it. When a caller DOES opt in, the 60 s eager budget
+ *    below bounds it and everything unprofiled stays pending;
  *  - fail CLOSED when the same-host gate keeps nothing: an all-cross-host
  *    manifest is a hostile or misconfigured one, not a partial success.
  */
@@ -25,8 +27,7 @@ import { ManifestError, MAX_MANIFEST_BYTES, MANIFEST_EAGER_BUDGET_MS } from "./s
 import type { EntityState, ManifestRecord, ManifestStore } from "./store";
 import { logger } from "@/lib/logger";
 
-// Re-exported from shared.ts (moved D40 — the client's background-eager loop
-// consumes the same budget).
+// Re-exported from shared.ts.
 export { MANIFEST_EAGER_BUDGET_MS } from "./shared";
 
 /** One entity prepared for introspection (post-gate, post-normalize). */
@@ -54,8 +55,13 @@ export interface ConnectManifestDeps {
   extractBatch(
     targets: EntityTarget[],
     creds: RemoteCreds | undefined,
-    budgetMs: number
+    budgetMs: number,
+    onProgress?: (evt: import("@/lib/manifest/shared").ConnectProgress) => void
   ): Promise<BatchOutcome>;
+  /** Failure memory (see MaterializeDeps) — injected, optional. */
+  recentFailure?(sourceKey: string, fingerprint: string): Promise<string | null>;
+  rememberFailure?(sourceKey: string, fingerprint: string, reason: string): Promise<void>;
+  clearFailure?(sourceKey: string): Promise<void>;
   /** Register a ready entity so the whole existing pipeline can use it. */
   registerEntity(
     csvId: string,
@@ -91,8 +97,10 @@ export interface ConnectManifestResult {
 
 export async function connectDatasetManifest(
   args: { url: string; creds?: RemoteCreds; force?: boolean },
-  deps: ConnectManifestDeps
+  deps: ConnectManifestDeps,
+  onProgress?: (evt: import("@/lib/manifest/shared").ConnectProgress) => void
 ): Promise<ConnectManifestResult> {
+  onProgress?.({ phase: "fetching", url: args.url });
   const text = await deps.fetchManifestText(args.url, args.creds);
   if (Buffer.byteLength(text, "utf8") > MAX_MANIFEST_BYTES) {
     throw new ManifestError(
@@ -136,12 +144,13 @@ export async function connectDatasetManifest(
     });
   }
   const manifest: DatasetManifest = { ...parsed, entities: kept };
+  onProgress?.({ phase: "adapting", entities: kept.length });
 
-  // Cache pass then eager extraction, inside the budget — the SHARED
+  // Cache pass, then extraction only if the caller opted in — the SHARED
   // materializer (ensure.ts), so a question that lazily materializes an entity
   // later uses byte-identical cache keys, fingerprints and registration.
-  // On a runtime with no batch extractor every miss stays pending and the
-  // client (or MCP) drives per-entity extraction on first touch.
+  // With eagerCapable false (the web default) every cache miss stays pending
+  // and the client, a question, or MCP drives per-entity extraction later.
   const { states, fromCache, skipped } = await materializeEntities({
     entities: kept,
     manifestHash,
@@ -150,6 +159,7 @@ export async function connectDatasetManifest(
     budgetMs: MANIFEST_EAGER_BUDGET_MS,
     ...(args.force ? { force: true } : {}),
     eagerCapable: deps.eagerCapable(),
+    ...(onProgress ? { onProgress } : {}),
   });
   const entities = new Map<string, EntityState>(states);
   for (const name of skipped) {
@@ -169,13 +179,15 @@ export async function connectDatasetManifest(
   };
   deps.store.put(record);
 
+  const ready = [...entities.values()].filter((e) => e.status === "ready").length;
   logger.info("Manifest connected", {
     manifestId: record.manifestId,
     format: manifest.format,
     entities: kept.length,
-    ready: [...entities.values()].filter((e) => e.status === "ready").length,
+    ready,
     fromCache,
     excluded: excluded.length,
   });
+  onProgress?.({ phase: "connected", entities: kept.length, ready });
   return { record, fromCache };
 }

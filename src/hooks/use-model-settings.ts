@@ -14,6 +14,7 @@
  * resolves from runtime-config for every harness).
  */
 import { useCallback, useEffect, useState } from "react";
+import { PROFILE_DEPTHS, DEFAULT_PROFILE_DEPTH, type ProfileDepth } from "@/lib/constants";
 import {
   CODE_GEN_MODEL,
   UI_COMPOSE_MODEL,
@@ -28,6 +29,7 @@ import {
   setActiveSandboxRuntime,
   setActiveModels,
   setComposerMode as setComposerModeApi,
+  setProfileDepth as setProfileDepthApi,
 } from "@/app/lib/api";
 
 export function useModelSettings() {
@@ -39,8 +41,15 @@ export function useModelSettings() {
   const [effort, setEffort] = useState<string>("auto");
   const [phaseEfforts, setPhaseEfforts] = useState<Record<string, string>>({});
   const [ollamaModel, setOllamaModel] = useState<string | null>(null);
+  // Rows a FILE-source value profile examines (warehouses have no value stats).
+  const [profileDepth, setProfileDepth] = useState<ProfileDepth>(DEFAULT_PROFILE_DEPTH);
   // Composer architecture (narrative-compiler spec): generative | compiled.
   const [composerMode, setComposerMode] = useState<"generative" | "compiled">("generative");
+  // Surfaced when a settings write did NOT land (the old behavior silently
+  // reverted the optimistic mirror, so a runtime pick that never persisted
+  // looked identical to one that did — the "I set wasm, it went back to
+  // docker" report). Cleared on the next successful change or adopt.
+  const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
 
   // Adopt the server-side EFFECTIVE selection — the resolved values (stored
   // choice or default), same ones every run will use. Runs on mount, and
@@ -57,9 +66,12 @@ export function useModelSettings() {
         if (m?.uiCompose && isValidModelId(m.uiCompose)) setUiComposeModel(m.uiCompose);
         const rt = data.effective?.sandbox?.runtime;
         if (rt && isValidRuntimeId(rt)) setSandboxRuntime(rt);
+        setSettingsNotice(null);
         const cfg = data.config?.models;
         setEffort(cfg?.effort ?? "auto");
         setPhaseEfforts(cfg?.efforts && typeof cfg.efforts === "object" ? cfg.efforts : {});
+        const pd = data.effective?.sandbox?.profileDepth;
+        if (PROFILE_DEPTHS.includes(pd as ProfileDepth)) setProfileDepth(pd as ProfileDepth);
         const cm = data.config?.composer?.mode;
         setComposerMode(cm === "compiled" ? "compiled" : "generative");
       })
@@ -99,10 +111,35 @@ export function useModelSettings() {
   const revert = useCallback(() => void adoptServerSettings(), [adoptServerSettings]);
   const handleRuntimeChange = useCallback(
     (r: SandboxRuntimeId) => {
-      setSandboxRuntime(r);
-      setActiveSandboxRuntime(r).catch(revert);
+      setSandboxRuntime(r); // optimistic mirror
+      setSettingsNotice(null);
+      setActiveSandboxRuntime(r)
+        .then(() => {
+          // Confirm the server side effect MATCHES the intent — re-read the
+          // effective selection rather than trusting the optimistic value, so
+          // a concurrent write (or a server-side coercion) can't leave the UI
+          // asserting a runtime that isn't the one a run will actually use.
+          return getModelSettings().then((data) => {
+            const eff = data?.effective?.sandbox?.runtime;
+            if (eff && isValidRuntimeId(eff)) {
+              setSandboxRuntime(eff);
+              if (eff !== r) {
+                setSettingsNotice(
+                  `Runtime is "${eff}", not "${r}" — the server did not keep your choice.`
+                );
+              }
+            }
+          });
+        })
+        .catch(async () => {
+          // The write itself failed: snap back to server truth AND say so,
+          // never a silent revert. Adopt FIRST (it clears the notice on
+          // success), THEN set the failure notice so it survives.
+          await adoptServerSettings();
+          setSettingsNotice(`Couldn't switch runtime to "${r}" — reverted to the saved setting.`);
+        });
     },
-    [revert]
+    [adoptServerSettings]
   );
   const handleCodeGenModelChange = useCallback(
     (m: ModelId) => {
@@ -145,8 +182,24 @@ export function useModelSettings() {
     [revert]
   );
 
+  /** Same confirm-or-say-so contract as the runtime toggle: an optimistic value
+   *  that never persisted must not keep displaying as though it had. */
+  const handleProfileDepthChange = useCallback(
+    (d: ProfileDepth) => {
+      setProfileDepth(d);
+      setSettingsNotice(null);
+      setProfileDepthApi(d).catch(async () => {
+        await adoptServerSettings();
+        setSettingsNotice(`Couldn't set profile depth to ${d.toLocaleString()} rows — reverted.`);
+      });
+    },
+    [adoptServerSettings]
+  );
+
   return {
     codeGenModel,
+    profileDepth,
+    handleProfileDepthChange,
     uiComposeModel,
     sandboxRuntime,
     composerMode,
@@ -160,5 +213,7 @@ export function useModelSettings() {
     handleEffortChange,
     phaseEfforts,
     handlePhaseEffortChange,
+    settingsNotice,
+    dismissSettingsNotice: () => setSettingsNotice(null),
   };
 }

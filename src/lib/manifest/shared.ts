@@ -11,6 +11,21 @@ import type { ManifestEntity } from "@/lib/contracts/dataset-manifest";
 
 /** Hard ceiling on entities per manifest — over it, the connect fails loudly. */
 export const MAX_MANIFEST_ENTITIES = 200;
+
+/**
+ * Connect-time progress events, streamed to the client so the ~2-minute Docker
+ * connect (egress network + a container schema-extraction per entity) shows
+ * what the server is doing instead of a silent spinner (the double-submit that
+ * produced two identical connects when nothing moved). One event per phase; the
+ * final `connected` carries the entity view the client renders.
+ */
+export type ConnectProgress =
+  | { phase: "fetching"; url: string }
+  | { phase: "adapting"; entities: number }
+  | { phase: "network-up"; hosts: string[] }
+  | { phase: "extracting"; entity: string; index: number; total: number }
+  | { phase: "extracted"; entity: string; ok: boolean; cached?: boolean }
+  | { phase: "connected"; entities: number; ready: number };
 /** Byte cap the P1 fetch enforces on the manifest document itself. */
 export const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
 /** Wall-clock budget for eager introspection (spec §5.5). Lives here (pure)

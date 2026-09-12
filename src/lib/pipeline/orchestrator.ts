@@ -32,6 +32,7 @@ import { getRunId } from "@/lib/run-context";
 import { envConfig } from "@/lib/harness-slot";
 import { getModel, cachedSystem } from "@/lib/llm/client";
 import { llmReplayConfig } from "@/lib/llm/replay";
+import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { retrieveExemplar } from "@/lib/learning/exemplars";
 import { harvestRun } from "@/lib/learning/harvest";
 import { reviewGeneratedCode } from "@/lib/pipeline/code-review";
@@ -159,7 +160,13 @@ export async function runPipeline(
   // attempt code stay the raw generated script.
   const skillPrelude =
     activeSkills.preludeSnippets.length > 0 ? activeSkills.preludeSnippets.join("\n") + "\n" : "";
-  const skillRenderCtx = { schema, sandboxMemoryGb: memLabel };
+  // Runtime-specific skill addenda (wasm alias idioms); pinned off under
+  // replay — host-derived prompt input (llmReplayConfig rule).
+  const skillRenderCtx = {
+    schema,
+    sandboxMemoryGb: memLabel,
+    runtime: llmReplayConfig() ? undefined : getActiveSandboxRuntime(),
+  };
   // Gate the pre-execution review to skills that ask for it (the geo/heavy path
   // built-ins do): that is where the OOM / memory-cap / prefer-engine failures
   // live and where a 15-min remote scan makes a few-thousand-token critic

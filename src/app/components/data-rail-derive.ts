@@ -31,7 +31,27 @@ export function buildProfileItems(schema: CSVSchema | null, wh: WarehouseSummary
 }
 
 /** Composer data-chip label — the attached dataset/connection, State 2+. */
-export function buildDatasetLabel(schema: CSVSchema | null, wh: WarehouseSummary): string | null {
+/**
+ * A connected dataset-manifest catalog, summarized for source labels. When
+ * present it WINS over the active entity's schema: a manifest question is
+ * scoped per-ask by the selection pre-step over the WHOLE catalog (any table,
+ * up to 6 combined), so labelling the source with the currently-previewed
+ * table read as a scope that never existed — the active entity is a schema
+ * PREVIEW, exactly like browsing one warehouse table.
+ */
+export interface ManifestSummary {
+  title?: string | null;
+  entityCount: number;
+}
+
+export function buildDatasetLabel(
+  schema: CSVSchema | null,
+  wh: WarehouseSummary,
+  manifest?: ManifestSummary | null
+): string | null {
+  if (manifest) {
+    return `${manifest.title ?? "Dataset catalog"} · ask across ${manifest.entityCount} tables`;
+  }
   return schema
     ? (schema.filename ?? "Uploaded data")
     : wh.isConnected
@@ -40,7 +60,14 @@ export function buildDatasetLabel(schema: CSVSchema | null, wh: WarehouseSummary
 }
 
 /** Source label for the top-bar pill. */
-export function buildSourceLabel(schema: CSVSchema | null, wh: WarehouseSummary): string {
+export function buildSourceLabel(
+  schema: CSVSchema | null,
+  wh: WarehouseSummary,
+  manifest?: ManifestSummary | null
+): string {
+  if (manifest) {
+    return `✓ ${manifest.title ?? "Dataset catalog"} · ${manifest.entityCount} tables`;
+  }
   return schema
     ? `✓ ${schema.filename ?? "data"} · ${schema.row_count.toLocaleString()} rows · ${schema.columns.length} columns`
     : wh.isConnected

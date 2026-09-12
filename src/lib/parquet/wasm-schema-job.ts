@@ -24,6 +24,7 @@
  * If a future consumer ever makes a trust decision from a schema, this changes.
  */
 import { randomUUID } from "node:crypto";
+import { healSchemaColumnMeta } from "@/lib/csv/schema-heal";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { WasmExecuteRequest } from "@/lib/contracts/stream-state";
 import type { RemoteCreds } from "@/lib/contracts/storage-types";
@@ -225,7 +226,9 @@ export function parseWasmSchemaEnvelope(
     throw new Error("Schema extraction found no columns in that source.");
   }
   const rowCount = Number(data.row_count);
-  return {
+  // Same untyped-boundary heal as the docker extractor: worker JSON is asserted,
+  // not checked, and a null column meta throws in consumers far from here.
+  return healSchemaColumnMeta({
     csv_id: csvId,
     filename,
     row_count: Number.isFinite(rowCount) && rowCount >= 0 ? Math.trunc(rowCount) : 0,
@@ -234,7 +237,7 @@ export function parseWasmSchemaEnvelope(
     ...(data.correlations ? { correlations: data.correlations } : {}),
     detected_domain: data.detected_domain ?? "general",
     source_type: "file",
-  };
+  });
 }
 
 function safeJson(text: string): unknown {

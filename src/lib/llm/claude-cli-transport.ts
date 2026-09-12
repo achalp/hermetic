@@ -37,8 +37,11 @@ import {
 export const CLAUDE_CLI_REQUEST_TIMEOUT_MS = 10 * 60_000; // 10 minutes
 
 /** Above this system-prompt size we fold it into the stdin prompt instead of
- *  passing `--system-prompt` as an argv (kept well under OS ARG_MAX). */
-export const SYSTEM_ARG_MAX_BYTES = 32_000;
+ *  passing `--system-prompt` as an argv. Sized to fit the geo retry system
+ *  prompt (base system + ~20KB skill guidance) so the CLI's system-prefix
+ *  caching stays engaged on exactly the calls that repeat it — while staying
+ *  under Linux's 128KB per-argument cap (MAX_ARG_STRLEN; macOS allows more). */
+export const SYSTEM_ARG_MAX_BYTES = 100_000;
 
 /** `which`/`existsSync` probe timeout. */
 const RESOLVE_TIMEOUT_MS = 3_000;
@@ -365,9 +368,22 @@ export function claudeCliFetch(opts: { binaryPath?: string; timeoutMs?: number }
 
     const isStreaming = body.stream === true;
     const model = String(body.model ?? "");
-    const system = (body.instructions as string) ?? "";
     const rawMessages = (body.input ?? []) as Array<Record<string, unknown>>;
+    // The AI-SDK's Responses shape delivers the system prompt as a
+    // role:"system" item inside `input`, NOT as `instructions` — joining
+    // everything into stdin sent the app's system prompt as USER text
+    // (steerability defect), left `--system-prompt` empty on every call
+    // (systemChars:0 in months of logs), and kept the CLI's system-prefix
+    // caching permanently disengaged. Partition by role instead.
+    const systemParts = rawMessages
+      .filter((m) => m.role === "system")
+      .map((m) => extractMessageText(m.content))
+      .filter(Boolean);
+    const system = [(body.instructions as string) ?? "", ...systemParts]
+      .filter(Boolean)
+      .join("\n\n");
     const prompt = rawMessages
+      .filter((m) => m.role !== "system")
       .map((m) => extractMessageText(m.content))
       .filter(Boolean)
       .join("\n\n");

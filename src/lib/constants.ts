@@ -458,3 +458,19 @@ export const INTERACTIVE_ROW_CAP = 5000;
  * proposed columns is separate and intentional (compiled proposes declared only).
  */
 export const FILTER_CARDINALITY_CAP = 50;
+
+/**
+ * Rows a FILE-source value profile examines, and the depths offered in settings.
+ *
+ * 50k by default — what the wasm runtime has always used. The reason is not only
+ * cost: on a REMOTE source the sample is `LIMIT n` over the leading row groups
+ * (a random sample over S3 would egress the whole dataset), so on a spatially
+ * sorted dataset like Overture extra depth widens a slice of the same corner
+ * rather than making it representative. See ProfileBasis in contracts/data-schema.
+ *
+ * WAREHOUSES ARE OUT OF SCOPE: they carry no value statistics at all — names,
+ * types, keys and a catalog row-count estimate — so this governs files only.
+ */
+export const PROFILE_DEPTHS = [50_000, 250_000, 500_000] as const;
+export type ProfileDepth = (typeof PROFILE_DEPTHS)[number];
+export const DEFAULT_PROFILE_DEPTH: ProfileDepth = 50_000;

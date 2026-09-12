@@ -42,6 +42,10 @@ export interface PageChromeProps {
   activeEntityName: string | null;
   loadingEntityName: string | null;
   onSelectManifestEntity: (name: string) => void;
+  /** What the catalog declares about the selected entity when it isn't profiled. */
+  entityPreview: import("@/hooks/use-source-select").ManifestEntityPreview | null;
+  /** "Profile this table" — the explicit, user-initiated full profile. */
+  onProfileManifestEntity: (name: string) => void;
   onRefreshSchema: (() => void) | undefined;
   isRefreshingSchema: boolean;
   // Artifacts panel
@@ -77,6 +81,7 @@ export function PageChrome(props: PageChromeProps) {
         onPhaseEffortChange={models.handlePhaseEffortChange}
         sandboxRuntime={models.sandboxRuntime}
         onSandboxRuntimeChange={models.handleRuntimeChange}
+        settingsNotice={models.settingsNotice}
         ollamaModel={models.ollamaModel}
         onOllamaModelChange={models.setOllamaModel}
         defaultStyle={props.purpose}
@@ -97,6 +102,8 @@ export function PageChrome(props: PageChromeProps) {
         onConnect={(config, force) =>
           warehouse.connect(config as unknown as Parameters<typeof warehouse.connect>[0], force)
         }
+        profileDepth={models.profileDepth}
+        onProfileDepthChange={models.handleProfileDepthChange}
         onDisconnect={warehouse.disconnect}
         onDeleteSaved={warehouse.deleteSaved}
         onRenameSaved={warehouse.renameSaved}
@@ -158,7 +165,7 @@ export function PageChrome(props: PageChromeProps) {
                         ? "failed"
                         : e.rowCount !== undefined
                           ? `${e.rowCountIsExact ? "" : "~"}${e.rowCount.toLocaleString()}`
-                          : "not read yet",
+                          : "not profiled",
                 }))
               : warehouse.tables.map((t) => ({
                   name: t.name,
@@ -174,6 +181,16 @@ export function PageChrome(props: PageChromeProps) {
           fullscreen={panels.railFullscreen}
           onRefreshSchema={props.onRefreshSchema}
           isRefreshing={props.isRefreshingSchema}
+          unprofiledEntity={props.manifest && !warehouse.isConnected ? props.entityPreview : null}
+          onProfileEntity={
+            props.entityPreview
+              ? () => props.onProfileManifestEntity(props.entityPreview!.name)
+              : undefined
+          }
+          isProfilingEntity={
+            props.loadingEntityName !== null &&
+            props.loadingEntityName === props.entityPreview?.name
+          }
         />
       </DataRail>
 

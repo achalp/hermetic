@@ -20,7 +20,35 @@ export interface Aggregation {
   as: string;
 }
 
-export type AggFn = "sum" | "avg" | "min" | "max" | "count" | "countDistinct" | "median";
+/**
+ * The composer's documented vocabulary is sum/avg/min/max/count/countDistinct/
+ * median — but the model regularly writes the PANDAS names ("mean", and
+ * variants like "average"/"unique"), and nothing validates the fn at compose
+ * time. An unknown fn used to fall through the switch to `undefined`, which
+ * silently DROPPED the aggregated column from every output row — the charts
+ * bound to those columns rendered empty, and a downstream percent() compute
+ * produced NaN (observed live: run 861ef499, every mean column vanished).
+ * Aliases are therefore first-class: normalize, never silently drop.
+ */
+export type AggFn =
+  | "sum"
+  | "avg"
+  | "mean"
+  | "average"
+  | "min"
+  | "max"
+  | "count"
+  | "countDistinct"
+  | "distinct"
+  | "unique"
+  | "median";
+
+const AGG_ALIASES: Record<string, AggFn> = {
+  mean: "avg",
+  average: "avg",
+  distinct: "countDistinct",
+  unique: "countDistinct",
+};
 
 export type PipelineStep =
   | { op: "filter" }
@@ -86,8 +114,9 @@ function median(values: number[]): number {
 }
 
 function aggregate(values: unknown[], fn: AggFn): number {
+  const resolved = AGG_ALIASES[fn] ?? fn;
   const nums = values.map(toNumber);
-  switch (fn) {
+  switch (resolved) {
     case "sum":
       return nums.reduce((a, b) => a + b, 0);
     case "avg":
@@ -102,6 +131,12 @@ function aggregate(values: unknown[], fn: AggFn): number {
       return new Set(values.map(String)).size;
     case "median":
       return median(nums);
+    default:
+      // An fn outside even the alias table (LLM-authored, unvalidated).
+      // Never fabricate (a count masquerading as a mean is a wrong number
+      // presented as right); NaN keeps the column PRESENT so the failure is
+      // visible and attributable instead of a silently blank chart.
+      return Number.NaN;
   }
 }
 

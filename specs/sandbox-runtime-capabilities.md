@@ -107,6 +107,53 @@ Maintained as of 2026-09-10; update rows when the wiring changes.
   materialization cap. Gated Node-Pyodide integration under
   `HERMETIC_WASM_TEST=1`.
 
+## Known runtime gaps (open)
+
+| Gap                                                     | Detail                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Warehouse results >100k rows are Docker-only            | `materializeCsvToParquet` hard-throws on non-Docker runtimes ("Parquet materialization is only supported with the Docker sandbox runtime"), so a large warehouse result on the wasm tier fails instead of falling back to the in-process CSV profiler (`lib/csv/schema`) that sub-100k results already use. |
+| ~~Manifest eager connect cannot cover a large catalog~~ | CLOSED by profile-on-demand (see below).                                                                                                                                                                                                                                                                    |
+
+## Source metadata tiers (file sources)
+
+Three tiers, only the third of which is expensive. Warehouses are out of scope:
+they carry no value statistics at all (`WarehouseColumnInfo` is name/type/nullable
+plus a catalog `row_count_estimate`), so they have always been tier 2.
+
+| Tier     | What it reads                                                | Cost                              | When                                                                 |
+| -------- | ------------------------------------------------------------ | --------------------------------- | -------------------------------------------------------------------- |
+| Catalog  | manifest-declared columns/row hints                          | zero                              | connect (lists the catalog; `eagerCapable: () => false`)             |
+| Describe | `DESCRIBE` + parquet footers → names, types, exact row count | seconds, no row egress            | a question needs an entity whose profile failed; the INCLUSION FLOOR |
+| Profile  | value statistics over `profileDepth` rows                    | ~50s+ per entity, bandwidth-bound | a question picks an entity, or "Profile this table"                  |
+
+Rules that hold across them:
+
+- A failed profile NEVER removes a table from a question — it degrades to
+  Describe, columns marked `unprofiled`, stated per column in the prompt. Only a
+  failed `DESCRIBE` means unusable.
+- A describe-only schema is never cached under the profile's key (it would read
+  as a successful profile forever and block the upgrade).
+- Depth (`PROFILE_DEPTHS`, default 50k) is a cache REUSE gate via
+  `profileSatisfiesDepth`, not part of source identity: deeper satisfies
+  shallower, a full scan satisfies everything.
+- No wall clock on a profile — it is bandwidth-bound, so cancellation is the
+  user's Stop (`request.signal`). Metadata work keeps its timeout, because its
+  duration does not scale with the data.
+- Numeric min/max come from parquet FOOTER statistics (exact, whole-dataset, no
+  scan) and the sample is spread across files, not taken from the head. Measured
+  on 750k rows in 3 files where only the last holds the maximum: a 500k head
+  prefix reported max 1,249,999; spread+footers reports the true 2,249,999 at
+  both 50k and 500k depth. `profile_basis` records which basis produced a
+  schema's statistics.
+
+### Known remaining limitation
+
+Spreading across FILES does not fix ordering bias WITHIN a file: each file still
+contributes its leading rows, so a within-file sorted column keeps a skewed mean
+(measured: true mean 1,124,999.5; spread 500k gave 1,083,332.5; the old head
+prefix gave 624,999.5). Ranges are unaffected — they come from footers. Fixing
+the rest means sampling row groups within each file.
+
 ## Scaffold code (tested, intentionally not on the production path)
 
 - `wasm/executor.ts` — Node-Pyodide parity executor, CI only.

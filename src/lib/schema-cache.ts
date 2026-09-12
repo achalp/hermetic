@@ -137,8 +137,22 @@ export async function resolveWithCache<T>(opts: {
   fingerprint: () => Promise<string>;
   extract: () => Promise<T>;
   force?: boolean;
+  /**
+   * Extra reuse gate applied to a FINGERPRINT-MATCHING entry: return false to
+   * treat it as stale. The fingerprint answers "has the source changed?", which
+   * is not the only reason a cached artifact can be unusable — a profile taken
+   * at a shallower depth than the caller now asks for is current but
+   * insufficient. Without this, raising the profile-depth setting would keep
+   * serving the shallow profile forever, since the source never changed.
+   *
+   * Deliberately NOT folded into the fingerprint or the sourceKey: the former
+   * would also re-extract when the request is SHALLOWER than the cache (a
+   * pointless downgrade), and the latter fragments one source into an entry per
+   * depth, which is the cache-fragmentation bug this module exists to avoid.
+   */
+  accept?: (artifact: T) => boolean;
 }): Promise<{ artifact: T; status: CacheStatus }> {
-  const { sourceKey, fingerprint, extract, force } = opts;
+  const { sourceKey, fingerprint, extract, force, accept } = opts;
 
   let fp: string | null = null;
   let wasStale = false;
@@ -159,11 +173,16 @@ export async function resolveWithCache<T>(opts: {
         return { artifact, status: "miss" };
       }
       if (fp === cached.fingerprint) {
-        logger.info("schema-cache hit", { sourceKey });
-        return { artifact: cached.artifact, status: "hit" };
+        if (!accept || accept(cached.artifact)) {
+          logger.info("schema-cache hit", { sourceKey });
+          return { artifact: cached.artifact, status: "hit" };
+        }
+        wasStale = true;
+        logger.info("schema-cache insufficient (source unchanged) — re-extracting", { sourceKey });
+      } else {
+        wasStale = true;
+        logger.info("schema-cache stale (fingerprint changed) — re-extracting", { sourceKey });
       }
-      wasStale = true;
-      logger.info("schema-cache stale (fingerprint changed) — re-extracting", { sourceKey });
     }
   }
 

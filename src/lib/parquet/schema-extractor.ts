@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { healSchemaColumnMeta } from "@/lib/csv/schema-heal";
 import { dirname, basename } from "node:path";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { SandboxRuntimeId } from "@/lib/constants";
@@ -11,11 +12,13 @@ import { friendlyParquetError } from "@/lib/parquet/friendly-error";
 import {
   buildSchemaScript,
   buildRemoteParquetSchemaScript,
+  buildRemoteDescribeScript,
   buildParquetFingerprintScript,
 } from "./schema-script";
 import { duckdbRemoteAuthSql, type RemoteCreds } from "./duckdb-source";
 import { extractParquetSchemaHost } from "./host-schema";
 import { computeRemoteParquetFingerprintHost } from "./host-fingerprint";
+import { getProfileDepth } from "@/lib/runtime-config";
 import { logger, errMessage } from "@/lib/logger";
 
 /**
@@ -36,8 +39,16 @@ async function runSchemaExtraction(args: {
    * bridge). When omitted, the container gets `--network none`.
    */
   remoteEgress?: { url: string; creds?: RemoteCreds };
-  /** Exec timeout — remote reads over the network need longer. */
-  timeoutMs: number;
+  /**
+   * Exec timeout. OMIT for a value profile: its duration scales with the dataset
+   * and the user's bandwidth, so any wall clock is a guess that fails for
+   * someone (60s starved a catalog, 120s lost division_area twice). Cancellation
+   * belongs to the user via `signal`, matching the no-analysis-timeout rule.
+   * Keep it for metadata-only work, where duration does NOT scale with the data.
+   */
+  timeoutMs?: number;
+  /** Aborts the exec AND tears the container down — a real Stop, not a timer. */
+  signal?: AbortSignal;
 }): Promise<CSVSchema> {
   const containerId = `hermetic-parquet-schema-${randomUUID()}`;
   let egress: EgressNetwork | undefined;
@@ -87,7 +98,10 @@ async function runSchemaExtraction(args: {
         "-c",
         "python3 /data/script.py > /data/stdout.txt 2>/data/stderr.txt; echo $?",
       ],
-      { timeoutMs: args.timeoutMs }
+      {
+        ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}),
+        ...(args.signal ? { signal: args.signal } : {}),
+      }
     );
 
     const exitCode = parseInt(execResult.stdout.trim(), 10);
@@ -122,7 +136,10 @@ async function runSchemaExtraction(args: {
       detected_domain: CSVSchema["detected_domain"];
     };
 
-    return {
+    // healSchemaColumnMeta: the cast above asserts a shape this JSON never had
+    // checked. A column with no usable meta becomes the explicit "unprofiled"
+    // variant instead of a null that throws in a consumer far from here.
+    return healSchemaColumnMeta({
       csv_id: args.csvId,
       filename: args.filename,
       row_count: data.row_count,
@@ -131,7 +148,7 @@ async function runSchemaExtraction(args: {
       correlations: data.correlations ?? undefined,
       detected_domain: data.detected_domain ?? "general",
       source_type: "file",
-    };
+    });
   } finally {
     await run("docker", ["rm", "-f", containerId], { timeoutMs: 10_000 }).catch(() => {});
     await egress?.teardown().catch(() => {});
@@ -172,7 +189,7 @@ export async function extractParquetSchema(
   const fileBasename = isFolder ? "" : basename(localPath);
 
   const schema = await runSchemaExtraction({
-    script: buildSchemaScript(fileBasename, isFolder, isHivePartitioned),
+    script: buildSchemaScript(fileBasename, isFolder, isHivePartitioned, getProfileDepth()),
     csvId,
     filename,
     mountHostPath: hostPath,
@@ -202,7 +219,9 @@ export async function extractRemoteParquetSchema(
   filename: string,
   runtime: SandboxRuntimeId,
   isHivePartitioned?: boolean,
-  creds?: RemoteCreds
+  creds?: RemoteCreds,
+  /** User cancellation (the request being aborted, or a run Stop). */
+  signal?: AbortSignal
 ): Promise<CSVSchema> {
   // Off Docker this runs IN THE WORKER, driven by the client — see
   // lib/parquet/wasm-schema-job.ts and /api/remote-parquet/schema(/complete).
@@ -216,16 +235,74 @@ export async function extractRemoteParquetSchema(
   }
 
   const schema = await runSchemaExtraction({
-    script: buildRemoteParquetSchemaScript(url, duckdbRemoteAuthSql(creds), isHivePartitioned),
+    script: buildRemoteParquetSchemaScript(
+      url,
+      duckdbRemoteAuthSql(creds),
+      isHivePartitioned,
+      undefined,
+      getProfileDepth()
+    ),
     csvId,
     filename,
     // No mount — the container reads the URL over the egress-allowlist gateway
     // derived from `url` (+ creds for region/endpoint), never the open bridge.
     remoteEgress: { url, creds },
-    timeoutMs: SANDBOX_TIMEOUT_MS * 4, // 120s — remote reads are slower
+    // NO timeoutMs: see runSchemaExtraction. A profile that needs four minutes of
+    // egress is slow, not broken, and killing it used to cost the table itself.
+    ...(signal ? { signal } : {}),
   });
 
   logger.info("Remote Parquet schema extracted", {
+    csvId,
+    filename,
+    rowCount: schema.row_count,
+    columnCount: schema.columns.length,
+    isHivePartitioned: !!isHivePartitioned,
+    // Provenance in the log too: "why is this range wrong" is answered by which
+    // rows the profile actually saw, not by the row count.
+    basis: schema.profile_basis?.kind,
+    rowsExamined: schema.profile_basis?.rows_examined,
+  });
+  return schema;
+}
+
+/**
+ * DESCRIBE-ONLY read of a remote Parquet source: column names and types from one
+ * file's schema, row count from the footers, and NO row egress at all. Seconds,
+ * against the ~50s+ (often more) a value profile of the same source costs.
+ *
+ * This is the INCLUSION FLOOR for remote data. Generated SQL needs to know what
+ * columns exist and their types; it does not need their percentiles. Statistics
+ * improve PLANS, and treating them as a precondition for ACCESS is what dropped
+ * Overture division_area out of a question after two 2.1-minute profile failures
+ * — while the query that ultimately answered that question read the same table's
+ * bbox and names columns directly, with no profile at all.
+ *
+ * Unlike the profile path, a hang guard here is honest: this reads metadata, so
+ * its duration does not scale with dataset size or the user's bandwidth.
+ */
+export async function describeRemoteParquet(
+  url: string,
+  csvId: string,
+  filename: string,
+  runtime: SandboxRuntimeId,
+  isHivePartitioned?: boolean,
+  creds?: RemoteCreds
+): Promise<CSVSchema> {
+  if (runtime !== "docker") {
+    throw new Error(
+      "Cloud Parquet schema reads on the built-in runtime run in the browser worker " +
+        "(/api/remote-parquet/schema), not here."
+    );
+  }
+  const schema = await runSchemaExtraction({
+    script: buildRemoteDescribeScript(url, duckdbRemoteAuthSql(creds), isHivePartitioned),
+    csvId,
+    filename,
+    remoteEgress: { url, creds },
+    timeoutMs: SANDBOX_TIMEOUT_MS * 2, // 60s — footers and one DESCRIBE, not data
+  });
+  logger.info("Remote Parquet described (no profile)", {
     csvId,
     filename,
     rowCount: schema.row_count,
@@ -304,6 +381,22 @@ export async function computeRemoteParquetFingerprint(
   }
 }
 
+/**
+ * Floor for a single entity's extraction when the batch budget is nearly
+ * spent — a fair chance rather than an instant timeout, while still bounding
+ * the overshoot that starved sibling entities.
+ */
+const MIN_ENTITY_EXTRACT_MS = 45_000;
+
+/**
+ * Entities extracted concurrently inside the one batch container. These are
+ * I/O-bound (each mostly waits on ranged object-store reads), so serializing
+ * them left the budget idle and covered only ~1-2 of 15 entities per connect.
+ * Capped rather than unbounded: each exec runs its own DuckDB process in the
+ * SAME container, so memory is shared.
+ */
+const BATCH_CONCURRENCY = 4;
+
 /** One entity in a manifest batch extraction (lib/manifest/connect.ts). */
 export interface BatchTarget {
   name: string;
@@ -337,7 +430,8 @@ export interface BatchExtractionOutcome {
 export async function extractRemoteParquetSchemaBatch(
   targets: BatchTarget[],
   creds: RemoteCreds | undefined,
-  budgetMs: number
+  budgetMs: number,
+  onProgress?: (evt: import("@/lib/manifest/shared").ConnectProgress) => void
 ): Promise<BatchExtractionOutcome> {
   const results = new Map<string, { schema: CSVSchema } | { error: string }>();
   if (targets.length === 0) return { results, skipped: [] };
@@ -363,6 +457,7 @@ export async function extractRemoteParquetSchemaBatch(
       );
     }
     egress = await setupEgressNetwork(containerId.slice(-12), [...hostSet]);
+    onProgress?.({ phase: "network-up", hosts: [...hostSet] });
     const runArgs = ["run", "-d", "--name", containerId, "--network", egress.networkName];
     for (const [k, v] of Object.entries(egress.env)) runArgs.push("-e", `${k}=${v}`);
     // sleep outlives budget + one overshooting entity, with margin.
@@ -370,67 +465,125 @@ export async function extractRemoteParquetSchemaBatch(
     await run("docker", runArgs, { timeoutMs: 15_000 });
 
     const authSql = duckdbRemoteAuthSql(creds);
-    let index = 0;
-    for (const t of targets) {
-      if (Date.now() - started >= budgetMs) break;
-      index++;
-      try {
-        const script =
-          pythonNanPrelude() +
-          "\n" +
-          buildRemoteParquetSchemaScript(t.readUrl, authSql, t.isHivePartitioned);
-        await run("docker", ["exec", "-i", containerId, "sh", "-c", "cat > /data/script.py"], {
-          input: script,
-          timeoutMs: 15_000,
-        });
-        const execResult = await run(
-          "docker",
-          [
-            "exec",
-            containerId,
-            "sh",
-            "-c",
-            "python3 /data/script.py > /data/stdout.txt 2>/data/stderr.txt; echo $?",
-          ],
-          { timeoutMs: SANDBOX_TIMEOUT_MS * 3 }
-        );
-        if (parseInt(execResult.stdout.trim(), 10) !== 0) {
-          const stderrResult = await run("docker", [
-            "exec",
-            containerId,
-            "cat",
-            "/data/stderr.txt",
-          ]).catch(() => ({ stdout: "Unknown error", stderr: "", exitCode: 1 }));
-          results.set(t.name, { error: friendlyParquetError(stderrResult.stdout) });
-          continue;
-        }
-        const outputResult = await run("docker", ["exec", containerId, "cat", "/data/output.json"]);
-        const data = parseJsonWithPythonNonFinite(outputResult.stdout) as {
-          row_count: number;
-          columns: CSVSchema["columns"];
-          sample_rows: CSVSchema["sample_rows"];
-          correlations: CSVSchema["correlations"];
-          detected_domain: CSVSchema["detected_domain"];
-        };
-        results.set(t.name, {
-          schema: {
-            csv_id: "", // stamped by the caller per registration
-            filename: t.name,
-            row_count: data.row_count,
-            columns: data.columns,
-            sample_rows: data.sample_rows,
-            correlations: data.correlations ?? undefined,
-            detected_domain: data.detected_domain ?? "general",
-            source_type: "file",
-          },
-        });
-      } catch (err) {
-        // Per-entity failure — record and move on; the batch must survive it.
-        results.set(t.name, { error: errMessage(err) });
-      }
-    }
+    // Read the depth ONCE per batch: every entity in one connect must be
+    // profiled to the same depth, or the cache gate would accept some and
+    // re-extract others after a mid-batch settings change.
+    const depth = getProfileDepth();
 
-    const skipped = targets.slice(index).map((t) => t.name);
+    // ── Parallel within the single container ──────────────────────────────
+    // These extractions are I/O-bound: each one mostly WAITS on ranged reads
+    // from the object store, so running them one at a time left the budget
+    // idle and covered ~1-2 of 15 entities per connect. They were serialized
+    // only because every entity wrote the SAME /data/script.py + output files
+    // (parallel execs would clobber each other) — an accident of the shared
+    // container, not a real constraint. Per-entity paths remove it.
+    let cursor = 0;
+    let attempted = 0;
+    const worker = async (): Promise<void> => {
+      for (;;) {
+        if (Date.now() - started >= budgetMs) return;
+        const myIndex = cursor++;
+        if (myIndex >= targets.length) return;
+        const t = targets[myIndex]!;
+        attempted++;
+        const entityStarted = Date.now();
+        // Per-entity ceiling: whatever remains of the budget, with a floor so a
+        // viable-but-slow entity still gets a fair run (a too-tight floor turns
+        // "slow" into a false "failed", which the failure memory would then
+        // remember). Never more than the 90s a large hive read legitimately needs.
+        const remainingMs = Math.max(MIN_ENTITY_EXTRACT_MS, budgetMs - (entityStarted - started));
+        const slot = `/data/e${myIndex}`;
+        onProgress?.({
+          phase: "extracting",
+          entity: t.name,
+          index: myIndex + 1,
+          total: targets.length,
+        });
+        try {
+          const script =
+            pythonNanPrelude() +
+            "\n" +
+            buildRemoteParquetSchemaScript(
+              t.readUrl,
+              authSql,
+              t.isHivePartitioned,
+              `${slot}.json`,
+              depth
+            );
+          await run("docker", ["exec", "-i", containerId, "sh", "-c", `cat > ${slot}.py`], {
+            input: script,
+            timeoutMs: 15_000,
+          });
+          const execResult = await run(
+            "docker",
+            [
+              "exec",
+              containerId,
+              "sh",
+              "-c",
+              `python3 ${slot}.py > ${slot}.out 2>${slot}.err; echo $?`,
+            ],
+            { timeoutMs: Math.min(SANDBOX_TIMEOUT_MS * 3, remainingMs) }
+          );
+          if (parseInt(execResult.stdout.trim(), 10) !== 0) {
+            const stderrResult = await run("docker", [
+              "exec",
+              containerId,
+              "cat",
+              `${slot}.err`,
+            ]).catch(() => ({ stdout: "Unknown error", stderr: "", exitCode: 1 }));
+            const reason = friendlyParquetError(stderrResult.stdout);
+            // LOG the reason, not just the count: `failed:1` alone sent a real
+            // investigation down three wrong paths (cache keys, fingerprints,
+            // runtime fragmentation) before anyone could see WHICH entity was
+            // failing and why.
+            logger.warn("Manifest batch: entity extraction failed", {
+              entity: t.name,
+              ms: Date.now() - entityStarted,
+              reason: reason.slice(0, 300),
+            });
+            results.set(t.name, { error: reason });
+            onProgress?.({ phase: "extracted", entity: t.name, ok: false });
+            continue;
+          }
+          const outputResult = await run("docker", ["exec", containerId, "cat", `${slot}.json`]);
+          const data = parseJsonWithPythonNonFinite(outputResult.stdout) as {
+            row_count: number;
+            columns: CSVSchema["columns"];
+            sample_rows: CSVSchema["sample_rows"];
+            correlations: CSVSchema["correlations"];
+            detected_domain: CSVSchema["detected_domain"];
+          };
+          results.set(t.name, {
+            schema: healSchemaColumnMeta({
+              csv_id: "", // stamped by the caller per registration
+              filename: t.name,
+              row_count: data.row_count,
+              columns: data.columns,
+              sample_rows: data.sample_rows,
+              correlations: data.correlations ?? undefined,
+              detected_domain: data.detected_domain ?? "general",
+              source_type: "file",
+            }),
+          });
+          onProgress?.({ phase: "extracted", entity: t.name, ok: true });
+        } catch (err) {
+          logger.warn("Manifest batch: entity extraction threw", {
+            entity: t.name,
+            ms: Date.now() - entityStarted,
+            reason: errMessage(err).slice(0, 300),
+          });
+          results.set(t.name, { error: errMessage(err) });
+          onProgress?.({ phase: "extracted", entity: t.name, ok: false });
+        }
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(BATCH_CONCURRENCY, targets.length) }, () => worker())
+    );
+    const index = attempted;
+
+    const skipped = targets.filter((t) => !results.has(t.name)).map((t) => t.name);
     const overshootMs = Math.max(0, Date.now() - started - budgetMs);
     logger.info("Manifest batch extraction finished", {
       attempted: index,

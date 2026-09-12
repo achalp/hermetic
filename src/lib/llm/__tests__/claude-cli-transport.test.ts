@@ -394,6 +394,66 @@ describe("claudeCliFetch", () => {
     expect(child.stdin.write).toHaveBeenCalledWith("What is 6*7?");
   });
 
+  it("partitions role:'system' input items into --system-prompt (the systemChars:0 wiring bug)", async () => {
+    // The AI-SDK Responses shape sends the system prompt as an input item, not
+    // `instructions` — it used to be flattened into stdin as USER text with
+    // --system-prompt left empty, so the CLI's system-prefix caching never
+    // engaged and every attempt cold-prefilled the full prompt.
+    mockedSpawn.mockReturnValue(
+      makeChild({
+        stdout: JSON.stringify({
+          type: "result",
+          subtype: "success",
+          result: "ok",
+          usage: { input_tokens: 3, output_tokens: 1 },
+        }),
+      }) as never
+    );
+
+    await claudeCliFetch()(
+      "http://claude-cli.local/v1/responses",
+      requestInit({
+        model: "claude-sonnet-4-6",
+        input: [
+          { role: "system", content: "You are a terse data analyst." },
+          { role: "user", content: "count the rows" },
+        ],
+        stream: false,
+      })
+    );
+
+    const [, args] = mockedSpawn.mock.calls[0];
+    const sysIdx = (args as string[]).indexOf("--system-prompt");
+    expect(sysIdx).toBeGreaterThan(-1);
+    expect((args as string[])[sysIdx + 1]).toBe("You are a terse data analyst.");
+    // stdin carries ONLY the user content — the system text must not leak in.
+    const child = mockedSpawn.mock.results[0].value;
+    expect(child.stdin.write).toHaveBeenCalledWith("count the rows");
+  });
+
+  it("instructions AND system items combine; multiple system items join in order", async () => {
+    mockedSpawn.mockReturnValue(
+      makeChild({
+        stdout: JSON.stringify({ type: "result", subtype: "success", result: "ok", usage: {} }),
+      }) as never
+    );
+    await claudeCliFetch()(
+      "http://claude-cli.local/v1/responses",
+      requestInit({
+        model: "m",
+        instructions: "Base rules.",
+        input: [
+          { role: "system", content: "Extra rules." },
+          { role: "user", content: "hi" },
+        ],
+        stream: false,
+      })
+    );
+    const [, args] = mockedSpawn.mock.calls[0];
+    const sysIdx = (args as string[]).indexOf("--system-prompt");
+    expect((args as string[])[sysIdx + 1]).toBe("Base rules.\n\nExtra rules.");
+  });
+
   it("SIGKILLs the CLI child when the request signal is aborted (stop)", async () => {
     // Regression: a /stop aborts the fetch, but the transport used to ignore
     // init.signal, so the spawned `claude` kept running (and billing). It must

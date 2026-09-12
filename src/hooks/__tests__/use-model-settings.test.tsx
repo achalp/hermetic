@@ -78,6 +78,46 @@ describe("useModelSettings", () => {
     expect(mSetRuntime).toHaveBeenCalledWith("docker");
   });
 
+  it("confirms the persisted runtime by re-reading server truth after the write", async () => {
+    const { result } = renderHook(() => useModelSettings());
+    await waitFor(() => expect(result.current.sandboxRuntime).toBe("docker"));
+    // The write succeeds and the server now reports wasm — the UI adopts it.
+    mGetSettings.mockResolvedValueOnce({
+      effective: { sandbox: { runtime: "wasm" } },
+    });
+    await act(async () => {
+      result.current.handleRuntimeChange("wasm");
+    });
+    await waitFor(() => expect(result.current.sandboxRuntime).toBe("wasm"));
+    expect(result.current.settingsNotice).toBeNull();
+  });
+
+  it("NOTIFIES (never silently) when the server did not keep the choice", async () => {
+    const { result } = renderHook(() => useModelSettings());
+    await waitFor(() => expect(result.current.sandboxRuntime).toBe("docker"));
+    // Write resolves, but the confirming read shows the server kept docker.
+    mGetSettings.mockResolvedValueOnce({
+      effective: { sandbox: { runtime: "docker" } },
+    });
+    await act(async () => {
+      result.current.handleRuntimeChange("wasm");
+    });
+    await waitFor(() => expect(result.current.settingsNotice).toMatch(/did not keep/i));
+    expect(result.current.sandboxRuntime).toBe("docker"); // shows server truth
+  });
+
+  it("NOTIFIES and reverts when the write itself fails (the silent-revert bug)", async () => {
+    const { result } = renderHook(() => useModelSettings());
+    await waitFor(() => expect(result.current.sandboxRuntime).toBe("docker"));
+    mSetRuntime.mockRejectedValueOnce(new Error("500"));
+    await act(async () => {
+      result.current.handleRuntimeChange("wasm");
+    });
+    await waitFor(() => expect(result.current.settingsNotice).toMatch(/couldn't switch/i));
+    // Reverted to server truth (docker), not left showing the failed wasm pick.
+    await waitFor(() => expect(result.current.sandboxRuntime).toBe("docker"));
+  });
+
   it("handleEffortChange persists the effort", async () => {
     const { result } = renderHook(() => useModelSettings());
     await waitFor(() => expect(result.current.effort).toBe("high"));

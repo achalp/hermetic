@@ -74,6 +74,11 @@ export function formatColumnMeta(col: CSVColumn): string {
     case "boolean": {
       return `- ${col.name} (${col.dtype}) — ${m.representation}: ${m.true_count} true, ${m.false_count} false${nullSuffix}`;
     }
+    case "unprofiled": {
+      // Say it plainly: the column EXISTS and is selectable, but no statistic
+      // about it was measured. Silence here reads as "nothing notable".
+      return `- ${col.name} (${col.dtype}) — NOT PROFILED (${m.reason}); usable in queries, but no statistics were measured`;
+    }
   }
 }
 
@@ -87,10 +92,41 @@ function formatColumnSample(col: CSVColumn): string {
 // ── Format columns based on mode ──────────────────────────────────
 
 function formatColumns(schema: CSVSchema, mode: SchemaMode): string {
-  if (mode === "sample") {
-    return schema.columns.map((col) => formatColumnSample(col)).join("\n");
+  const lines =
+    mode === "sample"
+      ? schema.columns.map((col) => formatColumnSample(col))
+      : schema.columns.map((col) => formatColumnMeta(col));
+  const basis = formatProfileBasis(schema);
+  return basis ? `${basis}\n${lines.join("\n")}` : lines.join("\n");
+}
+
+/**
+ * One line stating WHERE the statistics came from, when that changes how they
+ * should be read.
+ *
+ * A remote Parquet profile reads the LEADING rows (`LIMIT n` over the first row
+ * groups — a random sample over object storage would egress the whole dataset).
+ * For a dataset whose physical order correlates with a column — Overture is
+ * sorted spatially — a prefix measures a different population, not a noisy
+ * version of the whole: the min/max of a coordinate column describes one region.
+ * Stating that is what lets a model use the shape (types, cardinality, formats,
+ * which are robust) while discounting the ranges. Silence reads as dataset-wide.
+ */
+function formatProfileBasis(schema: CSVSchema): string | null {
+  const b = schema.profile_basis;
+  if (!b || b.kind === "full_scan") return null; // nothing to qualify
+  const total = schema.row_count.toLocaleString();
+  if (b.kind === "metadata") {
+    return `(Schema only — no rows were read, so no column statistics were measured. Columns and types are real; anything about VALUES is unknown. ${total} rows.)`;
   }
-  return schema.columns.map((col) => formatColumnMeta(col)).join("\n");
+  const examined = b.rows_examined.toLocaleString();
+  if (b.kind === "spread_sample") {
+    return `(Statistics computed over ${examined} of ${total} rows, sampled from files spread across the dataset — broadly representative, though not a true random sample. Numeric min/max come from the file metadata and are EXACT for the whole dataset.)`;
+  }
+  if (b.kind === "random_sample") {
+    return `(Statistics computed over a RANDOM SAMPLE of ${examined} of ${total} rows — representative, with sampling error.)`;
+  }
+  return `(Statistics computed over the FIRST ${examined} of ${total} rows, not a random sample. Types, formats and cardinality are reliable; ranges, min/max, distinct values and top values describe only those leading rows and may not hold dataset-wide — if a bound matters, compute it in your query.)`;
 }
 
 // ── System prompt ─────────────────────────────────────────────────
@@ -409,6 +445,11 @@ function generateSyntheticValues(col: CSVColumn, count: number): string[] {
       return generateSyntheticCategorical(m, count);
     case "boolean":
       return generateSyntheticBoolean(m, count);
+    case "unprofiled":
+      // Nothing was measured, so there is nothing to synthesize FROM. The row
+      // shape is still needed (the caller indexes every column), and a visible
+      // placeholder beats a fabricated value or an undefined hole.
+      return Array.from({ length: count }, () => "<not profiled>");
   }
 }
 
@@ -576,9 +617,10 @@ ${question}`;
  */
 export function buildGeospatialGuidance(
   schema: CSVSchema,
-  sandboxMemoryGb?: string | null
+  sandboxMemoryGb?: string | null,
+  runtime?: "docker" | "wasm"
 ): string {
-  return activateSkills({ schema }).prefixGuidance({ schema, sandboxMemoryGb });
+  return activateSkills({ schema }).prefixGuidance({ schema, sandboxMemoryGb, runtime });
 }
 
 /**
@@ -594,7 +636,8 @@ export function buildCodeGenSchemaBlock(
   mode: SchemaMode = "metadata",
   workbookContext?: string,
   localFileContext?: string,
-  sandboxMemoryGb?: string | null
+  sandboxMemoryGb?: string | null,
+  runtime?: "docker" | "wasm"
 ): string {
   const columnDescriptions = formatColumns(schema, mode);
 
@@ -633,7 +676,7 @@ Column types are database-native (high fidelity). The data has been loaded as CS
   // Geospatial guidance (KD-tree / polygon / memory-safe recipe) — only when the
   // data has a geometry column. Extracted so the retry path re-injects the SAME
   // text (see buildGeospatialGuidance).
-  const spatialSection = buildGeospatialGuidance(schema, sandboxMemoryGb);
+  const spatialSection = buildGeospatialGuidance(schema, sandboxMemoryGb, runtime);
 
   // User Python modules (data/user_lib) — preloaded into the sandbox and
   // advertised with extracted signatures. Stable per user_lib contents, so it

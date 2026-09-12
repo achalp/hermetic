@@ -7,7 +7,16 @@ import {
   buildConversationHistorySection,
 } from "./prompts";
 import { LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
-import { getActiveModels } from "@/lib/runtime-config";
+import { getActiveModels, getActiveSandboxRuntime } from "@/lib/runtime-config";
+import { llmReplayConfig } from "@/lib/llm/replay";
+
+/**
+ * Runtime for skill rendering (wasm-specific addenda, e.g. alias-list read
+ * idioms). Pinned to undefined under replay — host-derived prompt input, the
+ * llmReplayConfig() rule — so golden fixtures stay byte-stable.
+ */
+const skillRuntime = (): "docker" | "wasm" | undefined =>
+  llmReplayConfig() ? undefined : getActiveSandboxRuntime();
 import { getSandboxMemoryLimitGbLabel } from "@/lib/sandbox/memory-budget";
 import type { CSVSchema, SchemaMode } from "@/lib/contracts/data-schema";
 import type { ConversationTurn } from "@/lib/contracts/storage-types";
@@ -268,7 +277,8 @@ export async function generateAnalysisCode(
     mode,
     workbookContext,
     localFileContext,
-    sandboxMemoryGb
+    sandboxMemoryGb,
+    skillRuntime()
   );
   const guidanceTail = extraGuidance ? `\n${extraGuidance}` : "";
   const tail = hasTurns
@@ -380,7 +390,8 @@ export async function prewarmCodeGenCache(
               mode,
               workbookContext,
               localFileContext,
-              sandboxMemoryGb
+              sandboxMemoryGb,
+              skillRuntime()
             )
           ),
           { type: "text" as const, text: "\n## Question\nwarmup" },

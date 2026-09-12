@@ -128,6 +128,16 @@ export function buildManifestQuestionContext(
         "the exact expressions above (SQL-first; convert to pandas with .df() only " +
         "AFTER aggregating/filtering). Do NOT use pd.read_csv or any URL for them."
     );
+    const usesFiles = [...delivery.readExprs.values()].some((x) => x.includes("FILES["));
+    if (usesFiles) {
+      lines.push("");
+      lines.push(
+        "The FILES dict is preloaded: start with `from entity_files import FILES`. Every query " +
+          "interpolating it MUST be an f-string (the {FILES[...]} above is a Python " +
+          "interpolation). NEVER type file names out — FILES holds the exact registered lists, " +
+          "and any retyped or glob path fails."
+      );
+    }
   }
   lines.push("");
   for (const e of resolved.entities) {
@@ -216,6 +226,14 @@ export interface ManifestWasmAliases {
   readExprs: Map<string, string>;
   /** Footer-prefetch targets (only where a size is known — hint or listing). */
   prefetch: PrefetchTarget[];
+  /**
+   * Files to STAGE into the sandbox alongside the run (ride additionalFiles).
+   * A multi-file entity's registered names are shipped as DATA — a Python
+   * module defining FILES["<entity>"] — instead of being spelled out in the
+   * prompt: run 60dd60f3 spent 55 minutes of LLM streaming largely on the
+   * model echoing 521 file names into read_parquet([...]) literals, twice.
+   */
+  stagedFiles: { path: string; content: string }[];
 }
 
 /**
@@ -240,6 +258,7 @@ export async function buildManifestWasmAliases(
   const aliases: { name: string; url: string }[] = [];
   const readExprs = new Map<string, string>();
   const prefetch: PrefetchTarget[] = [];
+  const filesByEntity = new Map<string, string[]>();
 
   for (const e of resolved.entities) {
     const stored = e.stored;
@@ -259,7 +278,18 @@ export async function buildManifestWasmAliases(
         })
       );
       aliases.push(...fileAliases);
-      readExprs.set(e.name, buildHiveReadExpr(fileAliases, Boolean(stored.isHivePartitioned)));
+      // The file list ships as staged DATA (FILES["<name>"] in
+      // /data/entity_files.py); the prompt and the generated code carry only
+      // this compact interpolation — never hundreds of literal file names.
+      filesByEntity.set(
+        e.name,
+        fileAliases.map((a) => a.name)
+      );
+      readExprs.set(
+        e.name,
+        `read_parquet({FILES[${JSON.stringify(e.name)}]}` +
+          `${stored.isHivePartitioned ? ", hive_partitioning=true" : ""})`
+      );
       prefetch.push(
         ...objects.map((o) => ({
           url: `https://${host}/${encodeS3Key(o.key)}`,
@@ -288,5 +318,25 @@ export async function buildManifestWasmAliases(
       }
     }
   }
-  return { aliases, readExprs, prefetch };
+  const stagedFiles: { path: string; content: string }[] = [];
+  if (filesByEntity.size > 0) {
+    const entries = [...filesByEntity.entries()]
+      .map(
+        ([name, files]) =>
+          `  ${JSON.stringify(name)}: [\n` +
+          files.map((f) => `    ${JSON.stringify(f)},`).join("\n") +
+          `\n  ],`
+      )
+      .join("\n");
+    stagedFiles.push({
+      path: "/data/entity_files.py",
+      content:
+        `"""Registered per-entity parquet file lists for this question (auto-generated).\n` +
+        `Usage: from entity_files import FILES\n` +
+        `       duckdb.sql(f"SELECT ... FROM read_parquet({FILES['<entity>']}, hive_partitioning=true)")\n` +
+        `Never retype these names."""\n` +
+        `FILES = {\n${entries}\n}\n`,
+    });
+  }
+  return { aliases, readExprs, prefetch, stagedFiles };
 }

@@ -169,3 +169,24 @@ describe("parity additions (2026-09 audit)", () => {
     expect(p).toContain("except Exception:");
   });
 });
+
+describe("wildcard parquet paths (run 9ee0e56b — globs cannot match per-file aliases)", () => {
+  it("flags the ACTUAL failing shapes: a variable-assigned glob, star-in-filename and double-star", () => {
+    const code = [
+      'BLDG_GLOB = "release/2026-08-19.0/theme=buildings/type=building/part-*.zstd.parquet"',
+      'DIV_GLOB  = "release/2026-08-19.0/theme=divisions/type=division_area/**"',
+      "df = duckdb.sql(f\"SELECT 1 FROM read_parquet('{DIV_GLOB}', hive_partitioning=true)\").df()",
+    ].join("\n");
+    const r = detectUnsupportedFeatures(code);
+    expect(r.reasons.some((x) => /wildcard parquet path/.test(x))).toBe(true);
+  });
+
+  it("does NOT flag alias-list reads, exact paths, or markdown bold in docstrings", () => {
+    const code = [
+      '"""Analysis of **isolated** buildings — uses declared checks."""',
+      "df = duckdb.sql(\"SELECT 1 FROM read_parquet(['release/theme=buildings/part-00000.zstd.parquet', 'release/theme=buildings/part-00001.zstd.parquet'], hive_partitioning=true)\").df()",
+      "pdf = pd.read_parquet('/data/input.parquet')",
+    ].join("\n");
+    expect(detectUnsupportedFeatures(code)).toEqual({ imports: [], reasons: [] });
+  });
+});
