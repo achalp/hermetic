@@ -160,12 +160,23 @@ export function StatCardComponent({ props }: { props: StatCardProps }) {
         transitionDuration: "var(--transition-speed)",
       }}
     >
+      {/* WRAPS to two lines instead of truncating at one. A single clipped line
+          made "Vacancy ↔ Homelessness (…" and "Corr Vacancy Rate Vs Home…"
+          indistinguishable in the same grid — which is how a duplicate tile for
+          the same metric went unnoticed. The tooltip carries the full text for
+          the cases two lines still cannot hold. */}
       <p
-        className="truncate text-xs text-t-secondary"
+        className="text-xs text-t-secondary"
+        title={typeof props.label === "string" ? props.label : undefined}
         style={{
           fontWeight: statCard.labelWeight,
           textTransform: statCard.labelTransform,
           letterSpacing: statCard.labelTracking,
+          display: "-webkit-box",
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: "vertical",
+          overflow: "hidden",
+          wordBreak: "break-word",
         }}
       >
         {props.label}

@@ -111,7 +111,13 @@ describe("grounding advisories", () => {
     uncitedSuccessfulSteps: [],
   };
 
-  it("InvestigationCaveats renders contradictions and un-narrated finding names", () => {
+  it("InvestigationCaveats keeps the top tier in plain language, ids behind the reveal", () => {
+    // A correlation dashboard printed TWENTY raw ids as prose here —
+    // "king_county_hdi_presence, king_county_homeless_presence,
+    // datasets_overlap_sufficient, …" — in the one block whose purpose is plain
+    // language. The count belongs up top; the names belong under the technical
+    // details, the same two-tier idiom this component already applies to
+    // findingIssues.
     const spec = { root: "r", elements: {}, state: { __grounding: REPORT } };
     render(<InvestigationCaveats spec={spec as never} />);
 
@@ -119,11 +125,14 @@ describe("grounding advisories", () => {
       screen.getByText(/rising trend but the computed trend result says falling/)
     ).toBeTruthy();
     expect(
-      screen.getByText(
-        /Computed but not called out in the write-up: august_step, churn_by_cohort\./
-      )
+      screen.getByText(/2 computed figures were not called out in the write-up\./)
     ).toBeTruthy();
-    expect(screen.getByText(/\(median_revenue\) isn't shown as a headline stat/)).toBeTruthy();
+    // The identifiers are still available — just not as prose.
+    expect(
+      screen.getByText(/Computed but not narrated: august_step, churn_by_cohort/)
+    ).toBeTruthy();
+    // A name that DOES stay in the sentence reads as words, not as a key.
+    expect(screen.getByText(/\(median revenue\) isn't shown as a headline stat/)).toBeTruthy();
     expect(screen.getByText(/derivation contradiction/)).toBeTruthy();
   });
 

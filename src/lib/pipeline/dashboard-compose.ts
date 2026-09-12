@@ -51,6 +51,8 @@ import { type ValidStateKeys } from "@/lib/llm/resolve-placeholders";
 import { auditComputedKeys, type PatchLike } from "@/lib/pipeline/computed-key-audit";
 import { assembleSpecFromPatches } from "@/lib/pipeline/assemble-spec";
 import { repairReachability } from "@/lib/compose/reachability";
+import { lintScalarProps, recoverScalar } from "@/lib/compose/scalar-props";
+import { lintSeriesScale } from "@/lib/compose/series-scale";
 import { auditControllerRecipes } from "@/lib/pipeline/controller-recipe-audit";
 import { repairControllerRecipes } from "@/lib/pipeline/controller-recipe-repair";
 import {
@@ -457,6 +459,80 @@ export async function composeAndStreamDashboard(args: {
       }
     }
 
+    // SERIES SCALE. A single-axis chart renders every series against one range,
+    // so a series orders of magnitude smaller than its neighbour is a flat line
+    // along the floor — in the legend, saying nothing. The chart's own rows
+    // answer whether its series share a scale, so this is a lint over DATA rather
+    // than a prompt rule. Two groups become the DualAxisChart the catalog already
+    // ships for this; three or more get one chart each, because two axes cannot
+    // show three scales without flattening one again.
+    {
+      const assembledForScale = assembleSpecFromPatches(composedPatches as never);
+      if (assembledForScale?.elements) {
+        const els = assembledForScale.elements as Record<string, unknown>;
+        const { rewritten, added } = lintSeriesScale(els);
+        for (const [id, element] of Object.entries(added)) {
+          const patch = { op: "add", path: `/elements/${id}`, value: element };
+          composedPatches.push(patch as PatchLike);
+          emit(JSON.stringify(patch) + "\n");
+        }
+        for (const r of rewritten) {
+          // Replace the element wholesale: a split turns the original id into the
+          // LayoutColumn holding the new charts, so parents keep pointing at it
+          // and the tree stays reachable.
+          const patch = {
+            op: "replace",
+            path: `/elements/${r.elementId}`,
+            value: els[r.elementId],
+          };
+          composedPatches.push(patch as PatchLike);
+          emit(JSON.stringify(patch) + "\n");
+          logger.warn("Chart series do not share a scale — rewrote it", {
+            element: r.elementId,
+            kind: r.kind,
+            ratio: Math.round(r.ratio),
+            groups: r.groups,
+          });
+        }
+      }
+    }
+
+    // SCALAR VALUE SLOTS. A prop the catalog declares scalar (or an untyped
+    // `value` slot) holding a record reaches the user as the literal text
+    // "[object Object]". Applied to the WHOLE assembled spec rather than to the
+    // injector that produced the observed one, because any binding resolving to a
+    // record lands in the same place. Repairs to the headline number when the
+    // record contains one unambiguously; reports rather than invents otherwise.
+    {
+      const assembledForProps = assembleSpecFromPatches(composedPatches as never);
+      if (assembledForProps?.elements) {
+        const { fixed, unrenderable } = lintScalarProps(
+          assembledForProps.elements as Record<string, unknown>
+        );
+        for (const f of fixed) {
+          const patch = {
+            op: "replace",
+            path: `/elements/${f.elementId}/props/${f.prop}`,
+            value: f.recovered,
+          };
+          composedPatches.push(patch as PatchLike);
+          emit(JSON.stringify(patch) + "\n");
+          logger.warn("Repaired a non-scalar value slot", {
+            element: f.elementId,
+            prop: f.prop,
+            recovered: f.recovered,
+          });
+        }
+        for (const u of unrenderable) {
+          logger.error("Value slot holds an unrenderable object (would show [object Object])", {
+            element: u.elementId,
+            prop: u.prop,
+            objectKeys: u.objectKeys,
+          });
+        }
+      }
+    }
+
     // REACHABILITY. The renderer walks root through `children`, so a child id the
     // composer never emitted silently deletes that whole branch — and the run
     // still reports ok. Run 175e9f0a lost nine of twelve elements (every chart,
@@ -686,7 +762,22 @@ export async function composeAndStreamDashboard(args: {
         // Injection dedupe: a tile whose VALUE is already shown under any
         // label is not missing (run-24 injected a duplicate of an existing
         // total under a different label).
-        const v = resolveTileValue(tile.binding);
+        const raw = resolveTileValue(tile.binding);
+        // Compare on the SCALAR a record reduces to, not on String(record).
+        // String({pearson_r: 0.2637, ...}) is "[object Object]", which matches
+        // nothing — so the observed duplicate tile passed the very check meant to
+        // stop it, AND rendered as [object Object]. One cause, two symptoms.
+        const v =
+          raw !== null && typeof raw === "object" && !Array.isArray(raw)
+            ? (recoverScalar(raw as Record<string, unknown>) ?? raw)
+            : raw;
+        if (v !== null && typeof v === "object") {
+          logger.warn("Skipping tile injection: value is not renderable as a scalar", {
+            label: tile.label,
+            binding: tile.binding,
+          });
+          return false;
+        }
         if (v !== undefined && shownTileValues.has(String(v))) return false;
         return true;
       });
@@ -911,6 +1002,9 @@ export async function composeAndStreamDashboard(args: {
         // Enables the directional-contradiction check: a story that denies
         // the engine's own computed trend verdict gets flagged.
         results: (executionResult.results ?? {}) as Record<string, unknown>,
+        // ...and the data-shape checks: an outlier dominating a trend, a
+        // non-significant slope beside a large move, a tautological correlation.
+        chartData: (executionResult.chart_data ?? {}) as Record<string, unknown>,
         ...(opts.findings
           ? {
               findings: {
