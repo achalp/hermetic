@@ -130,6 +130,8 @@ function summarizeSchemaForPlanner(
         detail = ` — range [${m.min}, ${m.max}]; mean ${m.mean.toFixed(2)}`;
       } else if (m.kind === "date") {
         detail = ` — ${m.granularity}, [${m.min_date} → ${m.max_date}]`;
+      } else if (m.kind === "unprofiled") {
+        detail = ` — not profiled (${m.reason})`;
       }
       lines.push(`  - ${col.name} (${col.dtype})${detail}`);
     }

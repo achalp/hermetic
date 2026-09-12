@@ -13,6 +13,8 @@ vi.mock("@/app/lib/api", () => ({
 vi.mock("@/app/lib/manifest-connect", () => ({
   connectManifest: vi.fn(),
   ensureManifestEntity: vi.fn(),
+  getManifestEntityDetail: vi.fn(),
+  selectManifestEntities: vi.fn(),
 }));
 
 import {
@@ -21,7 +23,12 @@ import {
   fetchStaticAsset,
   uploadFile,
 } from "@/app/lib/api";
-import { connectManifest, ensureManifestEntity } from "@/app/lib/manifest-connect";
+import {
+  connectManifest,
+  ensureManifestEntity,
+  getManifestEntityDetail,
+  selectManifestEntities,
+} from "@/app/lib/manifest-connect";
 
 const mLocal = extractLocalSchema as ReturnType<typeof vi.fn>;
 const mRemote = extractRemoteParquetSchema as ReturnType<typeof vi.fn>;
@@ -29,6 +36,8 @@ const mStatic = fetchStaticAsset as ReturnType<typeof vi.fn>;
 const mUpload = uploadFile as ReturnType<typeof vi.fn>;
 const mConnectManifest = connectManifest as ReturnType<typeof vi.fn>;
 const mEnsureEntity = ensureManifestEntity as ReturnType<typeof vi.fn>;
+const mGetDetail = getManifestEntityDetail as ReturnType<typeof vi.fn>;
+const mSelectEntities = selectManifestEntities as ReturnType<typeof vi.fn>;
 
 const schema = { csv_id: "c", filename: "f.csv", row_count: 1, columns: [], sample_rows: [] };
 
@@ -46,6 +55,7 @@ beforeEach(() => {
   mUpload.mockReset();
   mConnectManifest.mockReset();
   mEnsureEntity.mockReset();
+  mGetDetail.mockReset();
 });
 
 afterEach(() => cleanup());
@@ -187,66 +197,132 @@ describe("useSourceSelect — dataset manifests in the Data Explorer (spec §6 r
     },
   });
 
-  it("a .json URL connects as a MANIFEST and auto-selects the first READY entity", async () => {
+  /** Detail as the CHEAP endpoint returns it for an entity nobody profiled:
+   *  no schema, no csvId — only what the catalog declares. */
+  const declaredOnly = (name: string) => ({
+    name,
+    status: "pending",
+    url: `https://h/data/${name}.parquet`,
+    columnDocs: [{ name: "geometry", description: "WKB polygon" }],
+  });
+
+  it("connect never PROFILES — it adopts an already-profiled entity and leaves the rest alone", async () => {
     mConnectManifest.mockResolvedValue(VIEW);
-    mEnsureEntity.mockResolvedValue(detail("population", "c-pop"));
+    mGetDetail.mockResolvedValue(detail("population", "c-pop"));
     const { result, handleUpload } = setup();
     await act(() => result.current.handleRemoteFileSelect("https://h/data/manifest.json"));
 
     // The parquet path was never taken; the manifest one was.
     expect(mRemote).not.toHaveBeenCalled();
-    // The auto-selected entity's row reflects its extraction (exact rows from
-    // the detail); the untouched entity keeps its connect-view row verbatim.
     expect(result.current.manifest).toMatchObject({ manifestId: "m1", title: "Housing hub" });
-    expect(result.current.manifest!.entities[0]).toEqual(VIEW.entities[0]);
-    expect(result.current.manifest!.entities[1]).toMatchObject({
-      name: "population",
-      status: "ready",
-      rowCount: 7,
-      rowCountIsExact: true,
-    });
-    // First READY entity preferred over the first pending one (no extraction wait).
-    expect(mEnsureEntity).toHaveBeenCalledWith(VIEW, "population", undefined);
+    // NOTHING was extracted: profiling a whole catalog at connect costs ~50s of
+    // remote egress per entity, for entities nobody may ever ask about.
+    expect(mEnsureEntity).not.toHaveBeenCalled();
+    // The entity already profiled (cache hit at connect) becomes the active
+    // source through the CHEAP detail read, so the explorer opens with real data.
+    expect(mGetDetail).toHaveBeenCalledWith("m1", "population");
     expect(result.current.activeEntityName).toBe("population");
-    // ...and it became the ACTIVE SOURCE, which is what feeds the explorer panes.
     expect(handleUpload).toHaveBeenCalledWith("c-pop", expect.objectContaining({ row_count: 7 }));
   });
 
-  it("selecting a pending entity lazily extracts it, updates the list, swaps the source", async () => {
-    mConnectManifest.mockResolvedValue(VIEW);
-    mEnsureEntity.mockResolvedValueOnce(detail("population", "c-pop"));
+  it("a catalog with NOTHING profiled connects instantly and touches no entity", async () => {
+    mConnectManifest.mockResolvedValue({
+      ...VIEW,
+      entities: VIEW.entities.map((e) => ({
+        name: e.name,
+        url: e.url,
+        status: "pending",
+        rowCountIsExact: false,
+      })),
+    });
     const { result, handleUpload } = setup();
     await act(() => result.current.handleRemoteFileSelect("https://h/data/manifest.json"));
 
-    mEnsureEntity.mockResolvedValueOnce(detail("housing", "c-house"));
+    expect(result.current.manifest!.entities).toHaveLength(2);
+    expect(mEnsureEntity).not.toHaveBeenCalled();
+    expect(mGetDetail).not.toHaveBeenCalled();
+    expect(handleUpload).not.toHaveBeenCalled();
+    expect(result.current.activeEntityName).toBeNull();
+  });
+
+  it("selecting an UNPROFILED entity shows what the catalog declares — and profiles nothing", async () => {
+    mConnectManifest.mockResolvedValue(VIEW);
+    mGetDetail.mockResolvedValueOnce(detail("population", "c-pop"));
+    const { result, handleUpload } = setup();
+    await act(() => result.current.handleRemoteFileSelect("https://h/data/manifest.json"));
+    handleUpload.mockClear();
+
+    mGetDetail.mockResolvedValueOnce(declaredOnly("housing"));
     await act(() => result.current.selectManifestEntity("housing"));
 
+    expect(mEnsureEntity).not.toHaveBeenCalled(); // a click is not a profile
+    expect(result.current.activeEntityName).toBe("housing");
+    expect(result.current.entityPreview).toEqual({
+      name: "housing",
+      columns: [{ name: "geometry", description: "WKB polygon" }],
+    });
+    // The previous entity's schema must not keep feeding the rail under the new
+    // entity's name — the preview is what the rail renders instead.
+    expect(handleUpload).not.toHaveBeenCalled();
+    expect(result.current.manifest!.entities[0]!.status).toBe("pending");
+  });
+
+  it("profileManifestEntity is the EXPLICIT action: it extracts, swaps the source, updates the list", async () => {
+    mConnectManifest.mockResolvedValue(VIEW);
+    mGetDetail.mockResolvedValueOnce(detail("population", "c-pop"));
+    const { result, handleUpload } = setup();
+    await act(() => result.current.handleRemoteFileSelect("https://h/data/manifest.json"));
+
+    mGetDetail.mockResolvedValueOnce(declaredOnly("housing"));
+    await act(() => result.current.selectManifestEntity("housing"));
+    mEnsureEntity.mockResolvedValueOnce(detail("housing", "c-house"));
+    await act(() => result.current.profileManifestEntity("housing"));
+
+    expect(mEnsureEntity).toHaveBeenCalledWith(VIEW, "housing", undefined);
+    expect(result.current.entityPreview).toBeNull(); // declared view gives way to real data
     expect(result.current.activeEntityName).toBe("housing");
     expect(handleUpload).toHaveBeenLastCalledWith("c-house", expect.anything());
-    // The list reflects the extraction without a refetch: exact rows, ready.
     const housing = result.current.manifest!.entities.find((e) => e.name === "housing")!;
     expect(housing).toMatchObject({ status: "ready", rowCount: 7, rowCountIsExact: true });
   });
 
-  it("re-selecting the ACTIVE entity is a no-op (no spinner, no re-extract)", async () => {
+  it("selecting an entity profiled EARLIER makes it active with no extraction", async () => {
     mConnectManifest.mockResolvedValue(VIEW);
-    mEnsureEntity.mockResolvedValue(detail("population", "c-pop"));
+    mGetDetail.mockResolvedValueOnce(detail("population", "c-pop"));
+    const { result, handleUpload } = setup();
+    await act(() => result.current.handleRemoteFileSelect("https://h/data/manifest.json"));
+
+    mGetDetail.mockResolvedValueOnce(declaredOnly("housing"));
+    await act(() => result.current.selectManifestEntity("housing"));
+    handleUpload.mockClear();
+    mGetDetail.mockResolvedValueOnce(detail("population", "c-pop"));
+    await act(() => result.current.selectManifestEntity("population"));
+
+    expect(mEnsureEntity).not.toHaveBeenCalled();
+    expect(result.current.entityPreview).toBeNull();
+    expect(handleUpload).toHaveBeenCalledWith("c-pop", expect.anything());
+  });
+
+  it("re-selecting the ACTIVE entity is a no-op (no spinner, no re-read)", async () => {
+    mConnectManifest.mockResolvedValue(VIEW);
+    mGetDetail.mockResolvedValue(detail("population", "c-pop"));
     const { result } = setup();
     await act(() => result.current.handleRemoteFileSelect("https://h/data/manifest.json"));
-    mEnsureEntity.mockClear();
+    mGetDetail.mockClear();
     await act(() => result.current.selectManifestEntity("population"));
+    expect(mGetDetail).not.toHaveBeenCalled();
     expect(mEnsureEntity).not.toHaveBeenCalled();
   });
 
-  it("a failed entity selection surfaces the error and keeps the previous source", async () => {
+  it("a failed PROFILE surfaces the error and keeps the previous source", async () => {
     mConnectManifest.mockResolvedValue(VIEW);
-    mEnsureEntity.mockResolvedValueOnce(detail("population", "c-pop"));
+    mGetDetail.mockResolvedValueOnce(detail("population", "c-pop"));
     const { result, handleUpload } = setup();
     await act(() => result.current.handleRemoteFileSelect("https://h/data/manifest.json"));
     handleUpload.mockClear();
 
     mEnsureEntity.mockRejectedValueOnce(new Error("404 from the source"));
-    await act(() => result.current.selectManifestEntity("housing"));
+    await act(() => result.current.profileManifestEntity("housing"));
 
     expect(result.current.sourceError).toContain("404");
     expect(handleUpload).not.toHaveBeenCalled();
@@ -255,7 +331,7 @@ describe("useSourceSelect — dataset manifests in the Data Explorer (spec §6 r
 
   it("resetSourceSelect clears the manifest state", async () => {
     mConnectManifest.mockResolvedValue(VIEW);
-    mEnsureEntity.mockResolvedValue(detail("population", "c-pop"));
+    mGetDetail.mockResolvedValue(detail("population", "c-pop"));
     const { result } = setup();
     await act(() => result.current.handleRemoteFileSelect("https://h/data/manifest.json"));
     act(() => result.current.resetSourceSelect());
@@ -264,106 +340,159 @@ describe("useSourceSelect — dataset manifests in the Data Explorer (spec §6 r
   });
 });
 
-describe("background eager introspection (D40 item 3)", () => {
-  const PENDING_VIEW = {
+describe("useSourceSelect — per-question table scope visibility (manifestPick)", () => {
+  const VIEW = {
     manifestId: "m1",
     manifestUrl: "https://h/data/manifest.json",
     format: "files-array",
+    title: "Housing hub",
     excluded: [],
     entities: [
-      { name: "a", url: "https://h/data/a.parquet", status: "pending", rowCountIsExact: false },
-      { name: "b", url: "https://h/data/b.parquet", status: "pending", rowCountIsExact: false },
-      { name: "c", url: "https://h/data/c.parquet", status: "pending", rowCountIsExact: false },
+      {
+        name: "housing",
+        url: "https://h/data/housing.parquet",
+        status: "pending",
+        rowCountIsExact: false,
+      },
+      {
+        name: "population",
+        url: "https://h/data/population.parquet",
+        status: "ready",
+        csvId: "c-pop",
+        rowCount: 5,
+        rowCountIsExact: true,
+      },
     ],
   };
-  const det = (name: string) => ({
+  const detail = (name: string, csvId: string) => ({
     name,
     status: "ready",
     url: `https://h/data/${name}.parquet`,
-    csvId: `c-${name}`,
+    csvId,
     schema: {
-      csv_id: `c-${name}`,
+      csv_id: csvId,
       filename: name,
-      row_count: 5,
+      row_count: 7,
       columns: [{ name: "x" }],
       sample_rows: [],
     },
   });
-  const flush = () => act(() => new Promise((r) => setTimeout(r, 0)));
 
-  it("keeps extracting the REMAINING entities after connect when the server was not eager", async () => {
-    mConnectManifest.mockResolvedValue(PENDING_VIEW);
-    mEnsureEntity.mockImplementation(async (_v, name: string) => det(name));
+  it("a successful pre-step exposes the pick (names) and the multi-entity request", async () => {
+    mConnectManifest.mockResolvedValue(VIEW);
+    mEnsureEntity.mockImplementation((_v: unknown, name: string) =>
+      Promise.resolve(detail(name, `c-${name}`))
+    );
+    mSelectEntities.mockResolvedValue({ entities: ["housing", "population"] });
+    mGetDetail.mockResolvedValue(detail("population", "c-pop"));
     const { result } = setup();
     await act(() => result.current.handleRemoteFileSelect("https://h/data/manifest.json"));
-    await flush();
-    await flush();
-    // First entity via auto-select, b and c via the background loop.
-    const names = mEnsureEntity.mock.calls.map((c) => c[1]);
-    expect(names).toEqual(["a", "b", "c"]);
-    const st = Object.fromEntries(result.current.manifest!.entities.map((e) => [e.name, e.status]));
-    expect(st).toEqual({ a: "ready", b: "ready", c: "ready" });
-  });
 
-  it("does NOT run when the server already did eager work (docker connect)", async () => {
-    mConnectManifest.mockResolvedValue({
-      ...PENDING_VIEW,
+    await act(() => result.current.prepareManifestForQuestion("compare housing to population"));
+    expect(result.current.manifestPick).toEqual({
+      kind: "picked",
+      names: ["housing", "population"],
+    });
+    expect(result.current.manifestQuestion).toEqual({
+      manifest_id: "m1",
       entities: [
-        {
-          ...PENDING_VIEW.entities[0],
-          status: "ready",
-          csvId: "c-a",
-          rowCount: 5,
-          rowCountIsExact: true,
-        },
-        ...PENDING_VIEW.entities.slice(1),
+        { name: "housing", csv_id: "c-housing" },
+        { name: "population", csv_id: "c-population" },
       ],
     });
-    mEnsureEntity.mockImplementation(async (_v, name: string) => det(name));
-    const { result } = setup();
-    await act(() => result.current.handleRemoteFileSelect("https://h/data/manifest.json"));
-    await flush();
-    // Only the auto-select ran — pending b/c stay lazy (the docker budget was
-    // already spent server-side; a second client budget would double it).
-    expect(mEnsureEntity.mock.calls.map((c) => c[1])).toEqual(["a"]);
-    expect(result.current.manifest!.entities[1]!.status).toBe("pending");
   });
 
-  it("YIELDS the worker the moment the user selects an entity", async () => {
-    mConnectManifest.mockResolvedValue(PENDING_VIEW);
-    // Make the background ensure slow so the user click lands mid-loop.
-    let resolveB!: (v: unknown) => void;
-    mEnsureEntity.mockImplementation(async (_v, name: string) => {
-      if (name === "b") return new Promise((r) => (resolveB = r));
-      return det(name);
+  it("run-a897dbcc regression: escorts alone NEVER satisfy a pick — subject failure means fallback", async () => {
+    // The model picked "housing" (the subject); the boundary escort was
+    // auto-included. If the SUBJECT fails to load (transient network error),
+    // running on the escort alone would answer a different question — the
+    // pre-step must fall back to the active entity instead.
+    mConnectManifest.mockResolvedValue(VIEW);
+    mEnsureEntity.mockImplementation((_v: unknown, name: string) =>
+      name === "housing"
+        ? Promise.reject(new Error("NetworkError"))
+        : Promise.resolve(detail(name, `c-${name}`))
+    );
+    mSelectEntities.mockResolvedValue({
+      entities: ["housing", "population"],
+      autoIncluded: ["population"],
     });
+    mGetDetail.mockResolvedValue(detail("population", "c-pop"));
     const { result } = setup();
     await act(() => result.current.handleRemoteFileSelect("https://h/data/manifest.json"));
-    await flush(); // background loop is now awaiting "b"
-    // User clicks c — generation bumps; when b finally resolves, the loop must
-    // NOT continue on to c a second time.
-    const clicked = act(() => result.current.selectManifestEntity("c"));
-    resolveB(det("b"));
-    await clicked;
-    await flush();
-    const calls = mEnsureEntity.mock.calls.map((c) => c[1]);
-    // a (auto), b (background, in flight), c (user) — and NOTHING after c from
-    // the abandoned loop.
-    expect(calls).toEqual(["a", "b", "c"]);
+
+    await act(() => result.current.prepareManifestForQuestion("analyze housing"));
+    expect(result.current.manifestQuestion).toBeNull(); // escorts alone = no pick
+    expect(result.current.manifestPick).toEqual({ kind: "fallback", active: "population" });
+    // The failed subject was retried once before giving up.
+    expect(mEnsureEntity.mock.calls.filter((c) => c[1] === "housing")).toHaveLength(2);
   });
 
-  it("a failing entity is skipped silently — warm-up, not a gate", async () => {
-    mConnectManifest.mockResolvedValue(PENDING_VIEW);
-    mEnsureEntity.mockImplementation(async (_v, name: string) => {
-      if (name === "b") throw new Error("404");
-      return det(name);
+  it("a PARTIAL drop proceeds but names the casualty in the pick", async () => {
+    mConnectManifest.mockResolvedValue(VIEW);
+    mEnsureEntity.mockImplementation((_v: unknown, name: string) =>
+      name === "population"
+        ? Promise.reject(new Error("NetworkError"))
+        : Promise.resolve(detail(name, `c-${name}`))
+    );
+    mSelectEntities.mockResolvedValue({
+      entities: ["housing", "population"],
+      autoIncluded: [],
     });
+    mGetDetail.mockResolvedValue(detail("population", "c-pop"));
     const { result } = setup();
     await act(() => result.current.handleRemoteFileSelect("https://h/data/manifest.json"));
-    await flush();
-    await flush();
-    const st = Object.fromEntries(result.current.manifest!.entities.map((e) => [e.name, e.status]));
-    expect(st).toEqual({ a: "ready", b: "pending", c: "ready" });
-    expect(result.current.sourceError).toBeNull(); // no user-facing error for a warm-up miss
+
+    await act(() => result.current.prepareManifestForQuestion("compare things"));
+    expect(result.current.manifestPick).toEqual({
+      kind: "picked",
+      names: ["housing"],
+      dropped: ["population"],
+    });
+    expect(result.current.manifestQuestion?.entities).toEqual([
+      { name: "housing", csv_id: "c-housing" },
+    ]);
+  });
+
+  it("the fallback PROFILES an entity when nothing is profiled yet — a question must have data", async () => {
+    // Profile-on-demand means a fresh catalog has no ready entity at all. If the
+    // selection pre-step also fails, the fallback has to MAKE a source rather
+    // than assume one, or the question dispatches against nothing.
+    mConnectManifest.mockResolvedValue({
+      ...VIEW,
+      entities: VIEW.entities.map((e) => ({
+        name: e.name,
+        url: e.url,
+        status: "pending",
+        rowCountIsExact: false,
+      })),
+    });
+    const { result, handleUpload } = setup();
+    await act(() => result.current.handleRemoteFileSelect("https://h/data/manifest.json"));
+    expect(handleUpload).not.toHaveBeenCalled();
+
+    mSelectEntities.mockRejectedValue(new Error("selection unavailable"));
+    mEnsureEntity.mockResolvedValue(detail("housing", "c-housing"));
+    await act(() => result.current.prepareManifestForQuestion("anything"));
+
+    expect(mEnsureEntity).toHaveBeenCalledWith(expect.anything(), "housing", undefined);
+    expect(handleUpload).toHaveBeenCalledWith("c-housing", expect.anything());
+    expect(result.current.manifestPick).toEqual({ kind: "fallback", active: "housing" });
+    expect(result.current.entityPreview).toBeNull();
+  });
+
+  it("a FAILED pre-step surfaces the single-entity fallback instead of narrowing silently", async () => {
+    mConnectManifest.mockResolvedValue(VIEW);
+    mEnsureEntity.mockImplementation((_v: unknown, name: string) =>
+      Promise.resolve(detail(name, `c-${name}`))
+    );
+    mGetDetail.mockResolvedValue(detail("population", "c-pop"));
+    const { result } = setup();
+    await act(() => result.current.handleRemoteFileSelect("https://h/data/manifest.json"));
+
+    mSelectEntities.mockRejectedValue(new Error("selection unavailable"));
+    await act(() => result.current.prepareManifestForQuestion("anything"));
+    expect(result.current.manifestPick).toEqual({ kind: "fallback", active: "population" });
+    expect(result.current.manifestQuestion).toBeNull();
   });
 });

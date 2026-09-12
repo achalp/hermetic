@@ -106,16 +106,95 @@ async function duckdbVersion() {
  * The process still stops, but with a message that names the upstream defect and
  * says what actually happened: DuckDB raised an error and could not report it.
  */
-const SETTHREW_SHIM = `/* hermetic: see build-duckdb-wasm-assets.mjs (D31) */
-var _setThrew = function (threw, value) {
-  throw new Error(
-    "DuckDB-WASM raised an internal error and could not report it: the blocking " +
-      "browser build calls _setThrew() without defining it (upstream defect). " +
-      "The ORIGINAL failure is whatever DuckDB was doing when this fired — a failed " +
-      "range read is the usual cause. threw=" + threw + " value=" + value
+/**
+ * ── The D31 defect, resolved at its root ──
+ *
+ * The blocking-browser glue references a FAMILY of Emscripten library
+ * functions (`_setThrew`, `___cxa_can_catch`, refcount helpers, …) that it
+ * never declares — upstream forgot the export wrappers, even though the wasm
+ * module EXPORTS every one of them (verified at build time below). The first
+ * casualty was `_setThrew`: every C++ exception crossing an `invoke_*`
+ * boundary died as `ReferenceError: Can't find variable: _setThrew`, burying
+ * the real DuckDB error (D31; runs 9cb7770b, 9ee0e56b). Restoring the wiring
+ * completes Emscripten's exception-emulation protocol: the wasm side sees the
+ * thrown-state, unwinds to DuckDB's own catch handlers (which need
+ * `___cxa_can_catch` — the SECOND missing wrapper the fix surfaced), and the
+ * error comes back as an ordinary, legible query error.
+ *
+ * The banner defines each JS name as a lazy wrapper over the exports object
+ * stashed at instantiation; a pre-instantiation call fails loudly (exceptions
+ * cannot fire before the module runs, so this is a can't-happen guard, never
+ * a silent stub — the D31 silent-corruption trap).
+ */
+const MISSING_GLUE_EXPORTS = [
+  "setThrew",
+  "__cxa_can_catch",
+  "__cxa_increment_exception_refcount",
+  "__cxa_decrement_exception_refcount",
+  "__cxa_get_exception_ptr",
+  "__cxa_demangle",
+  "__getTypeName",
+  "__errno_location",
+  "__trap",
+  "__get_exception_message",
+  "__thrown_object_from_unwind_exception",
+];
+
+const SETTHREW_SHIM =
+  `/* hermetic: missing-glue wiring — see build-duckdb-wasm-assets.mjs (D31 resolved) */\n` +
+  MISSING_GLUE_EXPORTS.map(
+    (n) =>
+      `var _${n} = function () { ` +
+      `var x = typeof self !== "undefined" && self.__hermeticWasmExports; var f = x && x[${JSON.stringify(n)}]; ` +
+      `if (!f) throw new Error("hermetic glue wiring: ${n} called before wasm instantiation"); ` +
+      `return f.apply(null, arguments); };`
+  ).join("\n") +
+  "\n";
+
+/**
+ * Stash the instantiated exports where the banner wrappers can reach them.
+ * EXACT-TEXT replacement on purpose: an upstream reshape fails the build and
+ * forces re-derivation instead of silently shipping the anonymous crash.
+ */
+const EXPORTS_READY_UPSTREAM =
+  "wasmExports = applySignatureConversions(wasmExports), addOnInit(wasmExports.__wasm_call_ctors)";
+const EXPORTS_READY_PATCHED =
+  "wasmExports = applySignatureConversions(wasmExports), " +
+  "/* hermetic glue wiring */ (self.__hermeticWasmExports = wasmExports), " +
+  "addOnInit(wasmExports.__wasm_call_ctors)";
+
+async function applyGlueWiring(bundlePath) {
+  const text = await readFile(bundlePath, "utf8");
+  if (!text.includes(EXPORTS_READY_UPSTREAM)) {
+    throw new Error(
+      "glue wiring: the exports-ready site no longer matches the expected upstream shape — " +
+        "re-derive the patch against the new glue (see build-duckdb-wasm-assets.mjs)"
+    );
+  }
+  const patched = text.replace(EXPORTS_READY_UPSTREAM, EXPORTS_READY_PATCHED);
+  await writeFile(bundlePath, patched);
+  const check = await readFile(bundlePath, "utf8");
+  if (!check.includes("hermetic glue wiring") || !check.includes("__hermeticWasmExports")) {
+    throw new Error("glue wiring: patch failed to apply");
+  }
+  console.log(
+    `duckdb-wasm: glue wiring applied (${MISSING_GLUE_EXPORTS.length} missing wrappers -> wasm exports)`
   );
-};
-`;
+}
+
+/** Every wired name must actually be exported by the module we ship. */
+async function verifyWiredExports(wasmPath) {
+  const mod = await WebAssembly.compile(await readFile(wasmPath));
+  const exps = new Set(WebAssembly.Module.exports(mod).map((e) => e.name));
+  const missing = MISSING_GLUE_EXPORTS.filter((n) => !exps.has(n));
+  if (missing.length > 0) {
+    throw new Error(
+      `glue wiring: duckdb-mvp.wasm no longer exports [${missing.join(", ")}] — ` +
+        "re-derive the wiring list against the new module"
+    );
+  }
+  console.log("duckdb-wasm: all wired glue names verified against the module's exports");
+}
 
 /**
  * Fail the asset build if the shim ever stops being needed OR stops being applied.
@@ -156,12 +235,14 @@ async function main() {
     banner: { js: SETTHREW_SHIM },
   });
   await assertSetThrewDefined(join(OUT, "duckdb-bundle.js"));
+  await applyGlueWiring(join(OUT, "duckdb-bundle.js"));
   const bundleBytes = (await stat(join(OUT, "duckdb-bundle.js"))).size;
   console.log(`duckdb-wasm: bundle ${(bundleBytes / 1e6).toFixed(1)}MB`);
 
   // 2. the mvp wasm module (see header: eh traps against the blocking glue)
   const wasm = await readFile(join(DIST, "duckdb-mvp.wasm"));
   await writeFile(join(OUT, "duckdb-mvp.wasm"), wasm);
+  await verifyWiredExports(join(OUT, "duckdb-mvp.wasm"));
   console.log(`duckdb-wasm: duckdb-mvp.wasm ${(wasm.length / 1e6).toFixed(1)}MB`);
 
   // 3. the local extension repository

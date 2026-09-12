@@ -17,9 +17,11 @@ vi.mock("@/lib/local-files/security", () => ({
 vi.mock("@/lib/sources/recent-sources", () => ({ recordRecentSource: vi.fn(async () => {}) }));
 
 const extractRemoteParquetSchema = vi.fn();
+const describeRemoteParquet = vi.fn();
 const computeRemoteParquetFingerprint = vi.fn<(...args: unknown[]) => Promise<string>>();
 vi.mock("@/lib/parquet/schema-extractor", () => ({
   extractRemoteParquetSchema: (...args: unknown[]) => extractRemoteParquetSchema(...args),
+  describeRemoteParquet: (...args: unknown[]) => describeRemoteParquet(...args),
   computeRemoteParquetFingerprint: (...args: unknown[]) => computeRemoteParquetFingerprint(...args),
 }));
 
@@ -49,6 +51,7 @@ vi.mock("@/lib/csv/storage", () => ({
 
 vi.mock("@/lib/runtime-config", () => ({
   getActiveSandboxRuntime: vi.fn(() => "docker"),
+  getProfileDepth: vi.fn(() => 50_000),
 }));
 
 import { POST } from "../route";
@@ -65,6 +68,7 @@ beforeEach(() => {
   validateLocalOrigin.mockReturnValue(true);
   computeRemoteParquetFingerprint.mockResolvedValue("fp-1");
   extractRemoteParquetSchema.mockResolvedValue({ row_count: 42, columns: [] });
+  describeRemoteParquet.mockResolvedValue({ row_count: 42, columns: [] });
 });
 
 describe("POST /api/remote-parquet/schema", () => {
@@ -152,12 +156,25 @@ describe("POST /api/remote-parquet/schema", () => {
     expect(credsArg).not.toHaveProperty("evil");
   });
 
-  it("returns 500 when the sandbox extraction fails", async () => {
+  it("degrades a failed PROFILE to the describe floor instead of 500ing", async () => {
+    // Statistics improve plans; they are not a precondition for access. A
+    // profile that times out (division_area: twice at ~2.1min) must leave the
+    // table USABLE — see the describe-floor tests for the full contract.
     extractRemoteParquetSchema.mockRejectedValue(new Error("network unreachable"));
+    const res = await POST(makeRequest({ url: "https://host/file.parquet" }));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.profile_tier).toBe("described");
+    expect(describeRemoteParquet).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 500 only when the DESCRIBE floor fails too — the source is unreadable", async () => {
+    extractRemoteParquetSchema.mockRejectedValue(new Error("network unreachable"));
+    describeRemoteParquet.mockRejectedValue(new Error("no such bucket"));
     const res = await POST(makeRequest({ url: "https://host/file.parquet" }));
     expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.error).toContain("network unreachable");
+    expect(json.error).toContain("no such bucket");
   });
 });
 

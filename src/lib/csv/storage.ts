@@ -1,4 +1,5 @@
 import { writeFile, readFile, unlink, mkdir } from "fs/promises";
+import { healSchemaColumnMeta } from "@/lib/csv/schema-heal";
 import { join } from "path";
 import type { CSVSchema, WorkbookManifest } from "@/lib/contracts/data-schema";
 import type { StoredCSV, RemoteCreds } from "@/lib/contracts/storage-types";
@@ -224,7 +225,11 @@ export function storeRemoteParquetRef(
   isHivePartitioned?: boolean
 ): void {
   store.set(csvId, {
-    schema,
+    // Last line of defense for the schema shape: every reader of a stored entry
+    // (manifest entity detail, the multi-entity prompt builder, MCP get_schema)
+    // switches on column meta.kind, and this is the one door all remote-parquet
+    // registrations pass through. Identity for a healthy schema.
+    schema: healSchemaColumnMeta(schema),
     filePath: "",
     createdAt: Date.now(),
     isParquet: true,

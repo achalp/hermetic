@@ -41,6 +41,16 @@ export interface ResultsRegionProps {
   csvId: string | null;
   /** Multi-entity manifest context for the next question (spec §7). */
   manifestQuestion?: { manifest_id: string; entities: { name: string; csv_id: string }[] } | null;
+  /** Connected catalog summary — labels the ask surface with the CATALOG
+   *  (per-question table selection), never the previewed entity. */
+  manifestSummary?: { title?: string | null; entityCount: number } | null;
+  /** How the current question's table scope was decided (pick / fallback),
+   *  surfaced under the question so the scope is visible, not implied. */
+  manifestPick?:
+    | { kind: "selecting" }
+    | { kind: "picked"; names: string[]; dropped?: string[] }
+    | { kind: "fallback"; active: string | null }
+    | null;
   warehouseId: string | null;
   reattach: ReturnType<typeof useReattach>;
   schemaMode: SchemaMode;
@@ -106,6 +116,11 @@ export function ResultsRegion(props: ResultsRegionProps) {
             isLoading={isAnalyzing}
             mode={queryMode}
             onModeChange={setQueryMode}
+            placeholderHint={
+              props.manifestSummary
+                ? `Ask across ${props.manifestSummary.entityCount} tables — any question can use any of them...`
+                : undefined
+            }
           />
         </div>
       )}
@@ -120,11 +135,36 @@ export function ResultsRegion(props: ResultsRegionProps) {
               fontSize: "clamp(18px, 2.2vw, 24px)",
               fontWeight: 650,
               lineHeight: 1.3,
-              marginBottom: 14,
+              marginBottom: props.manifestSummary && props.manifestPick ? 4 : 14,
             }}
           >
             {pageState.currentQuestion}
           </h1>
+        )}
+        {/* Table-scope line (manifest sources): the per-question pick — and
+            especially the silent single-entity FALLBACK — made visible instead
+            of implied by the previewed table. */}
+        {pageState.currentQuestion && props.manifestSummary && props.manifestPick && (
+          <p
+            className="mx-auto w-full max-w-[1100px] px-1 text-xs text-t-tertiary"
+            style={{ marginBottom: 14 }}
+            data-testid="manifest-scope-line"
+          >
+            {props.manifestPick.kind === "selecting"
+              ? `Choosing tables for this question (${props.manifestSummary.entityCount} available)...`
+              : props.manifestPick.kind === "picked"
+                ? `Using ${props.manifestPick.names.length === 1 ? "table" : "tables"}: ${props.manifestPick.names.join(", ")} — selected for this question from ${props.manifestSummary.entityCount} available` +
+                  // A drop now means the schema itself could not be read (a failed
+                  // value profile no longer removes a table — it degrades to a
+                  // describe-only schema). So this is a SCOPE change worth
+                  // stating plainly, not a footnote about slowness: a boundary
+                  // table missing here is how an answer silently becomes
+                  // bbox-shaped instead of region-shaped.
+                  (props.manifestPick.dropped?.length
+                    ? ` — EXCLUDED as unreadable: ${props.manifestPick.dropped.join(", ")}. Anything that needed those tables is outside this answer's scope.`
+                    : "")
+                : `Table selection unavailable — using only ${props.manifestPick.active ?? "the previewed table"} for this question`}
+          </p>
         )}
         <ResponsePanel
           csvId={props.csvId}

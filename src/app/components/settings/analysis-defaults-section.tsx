@@ -1,10 +1,14 @@
 "use client";
 
 import { PURPOSE_LIST, resolvePurpose } from "@/lib/purpose-prompts";
+import { PROFILE_DEPTHS, type ProfileDepth } from "@/lib/constants";
 
 interface AnalysisDefaultsSectionProps {
   defaultStyle: string;
   onDefaultStyleChange: (style: string) => void;
+  /** Rows a FILE-source value profile examines (warehouses carry no value stats). */
+  profileDepth: ProfileDepth;
+  onProfileDepthChange: (depth: ProfileDepth) => void;
   schemaMode: string;
   onSchemaModeChange: (mode: string) => void;
   composerSight: string;
@@ -17,6 +21,8 @@ const SIGHT_MODES = ["Blind", "Sighted"];
 export function AnalysisDefaultsSection({
   defaultStyle,
   onDefaultStyleChange,
+  profileDepth,
+  onProfileDepthChange,
   schemaMode,
   onSchemaModeChange,
   composerSight,
@@ -108,6 +114,58 @@ export function AnalysisDefaultsSection({
               }}
             >
               {m}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Profile depth: how many rows a FILE source's value profile examines.
+          Deliberately NOT shown as a quality dial. On a remote source the sample
+          is the leading row groups (a random sample over object storage would
+          egress the whole dataset), so on a sorted dataset extra depth widens a
+          slice of the same corner rather than making it representative — while
+          costing minutes of transfer. Warehouses are unaffected: their schema
+          carries no value statistics at all. */}
+      <div style={{ ...labelStyle, marginTop: 14 }}>PROFILE DEPTH (FILE SOURCES)</div>
+      <div
+        style={{
+          display: "flex",
+          background: "var(--color-surface-dark-2)",
+          borderRadius: 6,
+          overflow: "hidden",
+        }}
+      >
+        {PROFILE_DEPTHS.map((d) => {
+          const active = profileDepth === d;
+          return (
+            <button
+              key={d}
+              onClick={() => onProfileDepthChange(d)}
+              title={
+                d === 50_000
+                  ? "Fastest. Enough for types, shape and cardinality."
+                  : "Deeper statistics, more transfer. Ranges and top values still come from the leading rows of a remote source."
+              }
+              style={{
+                flex: 1,
+                padding: "6px 0",
+                fontSize: 12,
+                textAlign: "center",
+                background: active ? "var(--color-accent)" : "transparent",
+                color: active ? "#fff" : "var(--color-surface-dark-text3)",
+                border: "none",
+                cursor: "pointer",
+                transition: "color 0.15s",
+                fontVariantNumeric: "tabular-nums",
+              }}
+              onMouseEnter={(e) => {
+                if (!active) e.currentTarget.style.color = "var(--color-surface-dark-text2)";
+              }}
+              onMouseLeave={(e) => {
+                if (!active) e.currentTarget.style.color = "var(--color-surface-dark-text3)";
+              }}
+            >
+              {(d / 1000).toLocaleString()}k rows
             </button>
           );
         })}

@@ -142,6 +142,16 @@ export async function setComposerMode(mode: "generative" | "compiled"): Promise<
   if (!res.ok) throw new ApiError(`Failed to persist composer mode (${res.status})`, res.status);
 }
 
+/** Persist the FILE-source profile depth (warehouses carry no value stats). */
+export async function setProfileDepth(depth: number): Promise<void> {
+  const res = await fetch("/api/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ profileDepth: depth }),
+  });
+  if (!res.ok) throw new ApiError(`Failed to persist profile depth (${res.status})`, res.status);
+}
+
 export async function setActiveModels(models: {
   codeGen?: string;
   uiCompose?: string;
@@ -1267,7 +1277,7 @@ export interface ModelSettingsView {
   };
   effective?: {
     models?: { codeGen?: string; uiCompose?: string };
-    sandbox?: { runtime?: string };
+    sandbox?: { runtime?: string; profileDepth?: number };
   };
 }
 

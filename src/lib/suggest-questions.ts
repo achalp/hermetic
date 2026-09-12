@@ -4,7 +4,7 @@
  * not like SQL queries.
  */
 
-import type { CSVSchema, CSVColumn, NumericMeta, DataDomain } from "@/lib/contracts/data-schema";
+import type { CSVSchema, CSVColumn, DataDomain } from "@/lib/contracts/data-schema";
 import type { WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -77,8 +77,11 @@ export function generateSuggestions(schema: CSVSchema): string[] {
   }
 
   // 3. Distribution with outliers
+  // Narrow on kind rather than casting: a column can legitimately be a number
+  // dtype with an "unprofiled" meta (a remote GEOMETRY/BLOB column is described
+  // but never read), and the cast asserted statistics nobody measured.
   const outlierCol = numerics.find(
-    (c) => (c.meta as NumericMeta).outlier_count && (c.meta as NumericMeta).outlier_count! > 0
+    (c) => c.meta.kind === "number" && (c.meta.outlier_count ?? 0) > 0
   );
   if (outlierCol) {
     suggestions.push(

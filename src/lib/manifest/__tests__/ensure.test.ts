@@ -1,4 +1,16 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// Failure memory is an INJECTED dep (not module state) — drive it in-memory.
+const failures = new Map<string, string>();
+const failureDeps = {
+  recentFailure: async (k: string) => failures.get(k) ?? null,
+  rememberFailure: async (k: string, _f: string, reason: string) => {
+    failures.set(k, reason);
+  },
+  clearFailure: async (k: string) => {
+    failures.delete(k);
+  },
+};
 import {
   materializeEntities,
   ensureManifestEntities,
@@ -56,6 +68,10 @@ function deps(overrides: Partial<MaterializeDeps> = {}): MaterializeDeps & {
 }
 
 const HASH = "f".repeat(64);
+
+// The mocked failure memory is module-level state: clear it before EVERY test
+// so one test's remembered failure cannot suppress another's extraction.
+beforeEach(() => failures.clear());
 
 function recordWith(states: [string, EntityState][]): ManifestRecord {
   return {
@@ -188,6 +204,71 @@ describe("materializeEntities", () => {
       eagerCapable: true,
     });
     expect(r.states.get("a")?.status).toBe("ready");
+  });
+});
+
+describe("materializeEntities — failure memory (budget starvation)", () => {
+  it("a remembered failure is NOT re-attempted; the budget goes to its siblings", async () => {
+    // "bad" failed on a previous connect. This connect must leave it failed
+    // and spend the extractor on "good" only — the fix for one slow failure
+    // consuming the whole budget and skipping every healthy entity.
+    failures.set(`parquet:${HOST}/data/bad.parquet:{}`, "HTTP 403");
+    const d = deps({ readCachedSchema: vi.fn(async () => null), ...failureDeps });
+    const r = await materializeEntities({
+      entities: [entity("bad"), entity("good")],
+      manifestHash: HASH,
+      deps: d,
+      budgetMs: 1000,
+      eagerCapable: true,
+    });
+    expect(r.states.get("bad")?.status).toBe("failed");
+    expect(r.states.get("bad")?.error).toMatch(/403/);
+    const attempted = (d.extractBatch as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      name: string;
+    }[];
+    expect(attempted.map((t) => t.name)).toEqual(["good"]);
+  });
+
+  it("force OVERRIDES the memory — an explicit retry is always honored", async () => {
+    failures.set(`parquet:${HOST}/data/bad.parquet:{}`, "HTTP 403");
+    const d = deps({ readCachedSchema: vi.fn(async () => null), ...failureDeps });
+    await materializeEntities({
+      entities: [entity("bad")],
+      manifestHash: HASH,
+      deps: d,
+      budgetMs: 1000,
+      eagerCapable: true,
+      force: true,
+    });
+    const attempted = (d.extractBatch as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      name: string;
+    }[];
+    expect(attempted.map((t) => t.name)).toEqual(["bad"]);
+  });
+
+  it("a fresh failure is REMEMBERED, and a success CLEARS a prior one", async () => {
+    const d = deps({
+      readCachedSchema: vi.fn(async () => null),
+      ...failureDeps,
+      extractBatch: vi.fn(async (targets: { name: string }[]): Promise<BatchOutcome> => ({
+        results: new Map<string, { schema: CSVSchema } | { error: string }>(
+          targets.map((t) => [
+            t.name,
+            t.name === "bad" ? { error: "unreadable parquet" } : { schema: schemaFor(t.name) },
+          ])
+        ),
+        skipped: [],
+      })),
+    });
+    await materializeEntities({
+      entities: [entity("bad"), entity("good")],
+      manifestHash: HASH,
+      deps: d,
+      budgetMs: 1000,
+      eagerCapable: true,
+    });
+    expect(failures.get(`parquet:${HOST}/data/bad.parquet:{}`)).toMatch(/unreadable/);
+    expect(failures.has(`parquet:${HOST}/data/good.parquet:{}`)).toBe(false);
   });
 });
 

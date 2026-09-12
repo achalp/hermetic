@@ -20,6 +20,7 @@ import {
   setRuntimeConfig,
   getActiveModels,
   getActiveSandboxRuntime,
+  getProfileDepth,
   type RuntimeConfig,
 } from "@/lib/runtime-config";
 import {
@@ -40,7 +41,12 @@ import {
   keychainAvailable,
   type ApiKeyId,
 } from "@/lib/secrets";
-import { DEFAULT_SANDBOX_MEMORY_FRACTION, isValidModelId } from "@/lib/constants";
+import {
+  DEFAULT_SANDBOX_MEMORY_FRACTION,
+  isValidModelId,
+  PROFILE_DEPTHS,
+  type ProfileDepth,
+} from "@/lib/constants";
 
 import { errMessage } from "@/lib/logger";
 const DEFAULT_MAX_HISTORY = 200;
@@ -68,6 +74,7 @@ export function GET() {
       retention: rc.retention ?? {},
       models: rc.models ?? {},
       composer: rc.composer ?? {},
+      profileDepth: rc.profileDepth ?? null,
     },
     effective: {
       providers: {
@@ -80,6 +87,7 @@ export function GET() {
       sandbox: {
         memoryFraction: sandboxMemoryFraction(DEFAULT_SANDBOX_MEMORY_FRACTION),
         runtime: getActiveSandboxRuntime(),
+        profileDepth: getProfileDepth(),
       },
       retention: {
         maxHistoryEntries: maxHistoryEntries(DEFAULT_MAX_HISTORY),
@@ -160,6 +168,18 @@ export async function PUT(request: Request) {
       ...rc.sandbox,
       memoryFraction: fraction,
     };
+  }
+  if (body.profileDepth !== undefined) {
+    // A whitelist, not a range: a free-form depth lets a typo cost minutes of
+    // egress, and the three offered values are the whole contract.
+    const requested = Number(body.profileDepth);
+    if (!PROFILE_DEPTHS.includes(requested as ProfileDepth)) {
+      return Response.json(
+        { error: `profileDepth must be one of ${PROFILE_DEPTHS.join(", ")}` },
+        { status: 400 }
+      );
+    }
+    patch.profileDepth = requested as ProfileDepth;
   }
   if (body.retention !== undefined) {
     const r = (body.retention ?? {}) as Record<string, unknown>;

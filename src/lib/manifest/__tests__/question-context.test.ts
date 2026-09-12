@@ -258,7 +258,17 @@ describe("buildManifestWasmAliases — ranged delivery (D40, P3 items 1+2)", () 
     // 2 hive files + 1 single object = 3 tokens; hive alias names keep key paths.
     expect(register).toHaveBeenCalledTimes(3);
     expect(built.readExprs.get("housing-gap")).toContain("hive_partitioning=true");
-    expect(built.readExprs.get("housing-gap")).toContain("release/theme=gap/part-0.parquet");
+    // File names are NOT inlined in the expression any more — they ship as
+    // staged DATA (run 60dd60f3: the model spent most of an hour echoing 521
+    // literal file names into the code, twice). The expr interpolates FILES.
+    expect(built.readExprs.get("housing-gap")).toBe(
+      'read_parquet({FILES["housing-gap"]}, hive_partitioning=true)'
+    );
+    const staged = built.stagedFiles.find((f) => f.path === "/data/entity_files.py");
+    expect(staged).toBeDefined();
+    expect(staged!.content).toContain('"housing-gap": [');
+    expect(staged!.content).toContain('"release/theme=gap/part-0.parquet",');
+    expect(staged!.content).toContain("from entity_files import FILES");
     // Prefetch targets carry the LISTING sizes for the hive files.
     expect(built.prefetch.filter((p) => p.url.includes("part-"))).toHaveLength(2);
   });

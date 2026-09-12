@@ -117,3 +117,79 @@ describe("parseSelection", () => {
     expect(entities).toEqual(["housing-gap"]); // largest by row hint
   });
 });
+
+describe("parseSelection — boundary providers ride with geo picks (run 9ee0e56b)", () => {
+  function overtureRecord(): ManifestRecord {
+    const entities = new Map();
+    const add = (name: string, description: string) =>
+      entities.set(name, {
+        entity: { name, url: `https://h/data/${name}`, description },
+        status: "pending",
+      });
+    add("building", "Overture buildings theme: footprints with geometry");
+    add("place", "Overture places theme: POIs with geometry");
+    add("division_area", "Administrative boundaries: country/region/locality polygons");
+    add("segment", "Transportation segments");
+    return {
+      manifestId: "m2",
+      manifest: { manifestUrl: "https://h/m.json", format: "files-array", entities: [] },
+      excluded: [],
+      entities,
+      manifestHash: "h",
+      connectedAt: 0,
+    };
+  }
+
+  it("a geo-themed pick ALWAYS pulls the divisions entity along (named regions need polygons)", () => {
+    const { entities } = parseSelection(
+      '{"entities": ["building"]}',
+      overtureRecord(),
+      "find the most isolated building in Seattle"
+    );
+    expect(entities).toContain("building");
+    expect(entities).toContain("division_area");
+  });
+
+  it("a pick that already includes divisions is unchanged (no duplicate)", () => {
+    const { entities } = parseSelection(
+      '{"entities": ["building", "division_area"]}',
+      overtureRecord(),
+      "buildings inside Seattle"
+    );
+    expect(entities).toEqual(["building", "division_area"]);
+  });
+
+  it("a non-geo catalog is untouched by the rule", () => {
+    const { entities } = parseSelection(
+      '{"entities": ["housing-gap"]}',
+      record(),
+      "what is the renter housing gap?"
+    );
+    expect(entities).toEqual(["housing-gap"]);
+  });
+
+  it("the hard cap never evicts the boundary provider", () => {
+    const entities = new Map();
+    const add = (name: string, description: string) =>
+      entities.set(name, {
+        entity: { name, url: `https://h/${name}`, description },
+        status: "pending",
+      });
+    for (let i = 0; i < SELECT_HARD_CAP; i++) add(`geo_${i}`, "buildings with geometry");
+    add("division_area", "Administrative boundaries polygons");
+    const rec = {
+      manifestId: "m3",
+      manifest: { manifestUrl: "https://h/m.json", format: "files-array", entities: [] },
+      excluded: [],
+      entities,
+      manifestHash: "h",
+      connectedAt: 0,
+    } as ManifestRecord;
+    const picked = JSON.stringify({
+      entities: [...Array(SELECT_HARD_CAP)].map((_, i) => `geo_${i}`),
+    });
+    const { entities: out } = parseSelection(picked, rec, "isolated structures in Tacoma");
+    expect(out).toHaveLength(SELECT_HARD_CAP);
+    expect(out).toContain("division_area");
+  });
+});

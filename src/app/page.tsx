@@ -256,7 +256,17 @@ export default function Home() {
   });
 
   // ── Derived state ───────────────────────────────────────────
-  const hasData = isUploaded || warehouse.isConnected;
+  // A connected manifest IS data even with nothing profiled yet: the catalog is
+  // browsable and a question runs across it (the per-question selection pre-step
+  // profiles what it picks). Without this, profile-on-demand connects landed the
+  // user back on the empty state with their catalog invisible.
+  const hasData = isUploaded || warehouse.isConnected || source.manifest !== null;
+  // Catalog summary for source labels: with a manifest connected, the SOURCE
+  // is the whole catalog (per-question table selection), never the previewed
+  // entity — labelling with the entity implied a scope that never existed.
+  const manifestSummary = source.manifest
+    ? { title: source.manifest.title, entityCount: source.manifest.entities.length }
+    : null;
   const isState1 = !hasData && !showSheetPicker && !showSaved && !loadingViz && !rerunningViz;
   // hasResults: true when there are results to display (queried or loaded a viz)
   // hasResults joins the one-holder principle (M5-5e): a reattached run
@@ -346,6 +356,53 @@ export default function Home() {
   // ── Render ──────────────────────────────────────────────────
   return (
     <>
+      {/* Connect progress — a global bottom banner so the manifest connect's
+          live phases show from ANY entry point (file browser, recent sources,
+          re-query), not only inside the file-browser dialog. Docker connect
+          spins an egress network + a schema-extraction container per entity
+          (~2 min); this is what tells the user the server is working. */}
+      {source.connectProgress && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: "fixed",
+            left: "50%",
+            bottom: 24,
+            transform: "translateX(-50%)",
+            zIndex: 1200,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            maxWidth: "min(680px, 92vw)",
+            padding: "10px 16px",
+            borderRadius: 10,
+            background: "var(--color-surface-2, #1a2023)",
+            border: "1px solid var(--color-border-default, #2c343a)",
+            boxShadow: "0 6px 24px rgba(0,0,0,0.28)",
+            fontSize: 13,
+            color: "var(--color-t-primary, #e4e9ed)",
+          }}
+        >
+          <span
+            aria-hidden
+            style={{
+              width: 12,
+              height: 12,
+              borderRadius: "50%",
+              border: "2px solid var(--color-accent, #4fb3ae)",
+              borderTopColor: "transparent",
+              animation: "hermetic-spin 0.8s linear infinite",
+              flex: "0 0 auto",
+            }}
+          />
+          <span style={{ fontWeight: 600 }}>Connecting source…</span>
+          <span style={{ color: "var(--color-t-secondary, #a8b2bc)" }}>
+            {source.connectProgress.detail}
+          </span>
+          <style>{"@keyframes hermetic-spin{to{transform:rotate(360deg)}}"}</style>
+        </div>
+      )}
       {/* Hidden file inputs: saved-viz rerun; initial upload (composer) */}
       <input
         ref={viz.fileInputRef}
@@ -376,7 +433,7 @@ export default function Home() {
         }}
         hasData={hasData}
         isState1={isState1}
-        sourceLabel={buildSourceLabel(schema, warehouse)}
+        sourceLabel={buildSourceLabel(schema, warehouse, manifestSummary)}
         toolbar={{
           isState4,
           showSaved,
@@ -443,6 +500,8 @@ export default function Home() {
         activeEntityName={source.activeEntityName}
         loadingEntityName={source.loadingEntityName}
         onSelectManifestEntity={source.selectManifestEntity}
+        entityPreview={source.entityPreview}
+        onProfileManifestEntity={source.profileManifestEntity}
         isWorkbookMode={isWorkbookMode}
         onRefreshSchema={onRefreshSchema}
         isRefreshingSchema={source.isExtractingLocalSchema || warehouse.isConnecting}
@@ -520,6 +579,7 @@ export default function Home() {
             onSelect={source.handleLocalFileSelect}
             onSelectRemote={source.handleRemoteFileSelect}
             isExtracting={source.isExtractingLocalSchema}
+            connectProgress={source.connectProgress}
           />
 
           {/* ═══ STATE 1: Connect Your Data ═══ */}
@@ -550,7 +610,7 @@ export default function Home() {
             <AskScreen
               composer={composerWiring}
               menu={menuWiring}
-              attachedLabel={buildDatasetLabel(schema, warehouse)}
+              attachedLabel={buildDatasetLabel(schema, warehouse, manifestSummary)}
               isAnalyzing={isAnalyzing}
               purpose={purpose}
               onStyleChange={actions.handleStyleChange}
@@ -566,6 +626,8 @@ export default function Home() {
           {/* ═══ STATES 3+4: analysis history, ResponsePanel, follow-ups ═══ */}
           <ResultsRegion
             hasData={hasData}
+            manifestSummary={manifestSummary}
+            manifestPick={source.manifestPick}
             isState3={isState3}
             isState4={isState4}
             queryMode={queryMode}

@@ -1,7 +1,13 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from "fs";
 import { dirname } from "path";
-import { CODE_GEN_MODEL, UI_COMPOSE_MODEL, isValidModelId } from "@/lib/constants";
-import type { SandboxRuntimeId } from "@/lib/constants";
+import {
+  CODE_GEN_MODEL,
+  UI_COMPOSE_MODEL,
+  isValidModelId,
+  PROFILE_DEPTHS,
+  DEFAULT_PROFILE_DEPTH,
+} from "@/lib/constants";
+import type { SandboxRuntimeId, ProfileDepth } from "@/lib/constants";
 import { hermeticPaths } from "@/lib/paths";
 import { envConfig } from "@/lib/harness-slot";
 import { logger, errMessage } from "@/lib/logger";
@@ -48,6 +54,17 @@ export interface RuntimeConfig {
    * behavior preserved).
    */
   dockerAvailable?: boolean;
+  /**
+   * Rows a value profile examines for a FILE source (local or remote Parquet /
+   * CSV). Warehouses are unaffected: they carry no value statistics at all —
+   * their schema is names, types, keys and a row-count estimate from the
+   * catalog — so this control would be a lie about what it governs there.
+   *
+   * Absent → DEFAULT_PROFILE_DEPTH (50k). Raising it deepens a remote profile's
+   * PREFIX, which reduces variance but not the ordering bias described in
+   * ProfileBasis, so the honest gain is on unsorted/local sources.
+   */
+  profileDepth?: ProfileDepth;
   /** User-selected LLM provider override (takes priority over auto-detection) */
   activeProvider?: string;
   /**
@@ -274,6 +291,17 @@ export function resolveActiveRuntime(
   if (userPinned) return userPinned;
   if (dockerAvailable === false) return "wasm";
   return "docker";
+}
+
+/**
+ * Rows a FILE-source value profile examines. See RuntimeConfig.profileDepth for
+ * why warehouses are out of scope.
+ */
+export function getProfileDepth(): ProfileDepth {
+  const configured = getRuntimeConfig().profileDepth;
+  return PROFILE_DEPTHS.includes(configured as ProfileDepth)
+    ? (configured as ProfileDepth)
+    : DEFAULT_PROFILE_DEPTH;
 }
 
 /**

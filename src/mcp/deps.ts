@@ -52,8 +52,12 @@ import { fetchManifestText } from "@/lib/manifest/fetch";
 import { getManifestStore, type ManifestRecord } from "@/lib/manifest/store";
 import { buildSelectionPrompt, parseSelection } from "@/lib/manifest/select";
 import { MANIFEST_EAGER_BUDGET_MS } from "@/lib/manifest/shared";
-import { extractRemoteParquetSchemaBatch } from "@/lib/parquet/schema-extractor";
+import {
+  extractRemoteParquetSchemaBatch,
+  describeRemoteParquet,
+} from "@/lib/parquet/schema-extractor";
 import { readSchemaCache, writeSchemaCache } from "@/lib/schema-cache";
+import { healSchemaColumnMeta } from "@/lib/csv/schema-heal";
 import { getModel } from "@/lib/llm/client";
 import { trackRouteCost } from "@/lib/cost/epilogue";
 import { logger, errMessage } from "@/lib/logger";
@@ -180,12 +184,26 @@ function manifestMaterializeDeps(): MaterializeDeps {
   return {
     readCachedSchema: async (sourceKey, fingerprint) => {
       const entry = await readSchemaCache<CSVSchemaT>(sourceKey);
-      return entry && entry.fingerprint === fingerprint ? entry.artifact : null;
+      if (!entry || entry.fingerprint !== fingerprint) return null;
+      // Same heal-on-read as the web door (see the connect route): an older
+      // build could cache a null column meta.
+      return healSchemaColumnMeta(entry.artifact);
     },
     writeCachedSchema: (sourceKey, fingerprint, schema) =>
       writeSchemaCache(sourceKey, fingerprint, schema),
     extractBatch: (targets, creds, budgetMs) =>
       extractRemoteParquetSchemaBatch(targets, creds, budgetMs),
+    // The inclusion floor, same as the web door: a failed value profile must not
+    // remove a readable table from a question.
+    describeOne: (target, creds, csvId, filename) =>
+      describeRemoteParquet(
+        target.readUrl,
+        csvId,
+        filename,
+        getActiveSandboxRuntime(),
+        target.isHivePartitioned,
+        creds
+      ),
     registerEntity: (csvId, schema, readUrl, creds, isHive) =>
       storeRemoteParquetRef(csvId, schema, readUrl, creds, isHive),
     newId: () => randomUUID(),

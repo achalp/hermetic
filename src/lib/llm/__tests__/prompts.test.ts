@@ -407,3 +407,83 @@ describe("buildCodeGenUserPrompt", () => {
     expect(real).not.toContain("## Synthetic Example Rows");
   });
 });
+
+describe("profile provenance in the schema section", () => {
+  const base = {
+    csv_id: "c",
+    filename: "building.parquet",
+    row_count: 2_532_000_000,
+    sample_rows: [],
+    columns: [
+      {
+        name: "lon",
+        dtype: "number" as const,
+        null_count: 0,
+        sample_values: ["-122.3"],
+        meta: {
+          kind: "number" as const,
+          is_integer: false,
+          decimal_precision: 4,
+          is_currency: false,
+          is_percentage: false,
+          min: -122.4,
+          max: -122.2,
+          mean: -122.3,
+          median: -122.3,
+          std_dev: 0.1,
+          p25: -122.35,
+          p75: -122.25,
+          zero_count: 0,
+          negative_count: 50_000,
+        },
+      },
+    ],
+  };
+
+  it("warns that a remote PREFIX profile's ranges are not dataset-wide", () => {
+    // The observed failure this prevents: a prefix of spatially sorted Overture
+    // makes lon/lat look like one city, and a planner sizes a grid from it.
+    const prompt = buildCodeGenUserPrompt(
+      { ...base, profile_basis: { kind: "leading_prefix", rows_examined: 50_000 } },
+      "most isolated building",
+      "metadata"
+    );
+    expect(prompt).toContain("FIRST 50,000 of 2,532,000,000 rows");
+    expect(prompt).toContain("not a random sample");
+    expect(prompt).toContain("may not hold dataset-wide");
+    // ...while still telling the model what IS trustworthy from a prefix.
+    expect(prompt).toContain("Types, formats and cardinality are reliable");
+  });
+
+  it("says a local random sample is representative", () => {
+    const prompt = buildCodeGenUserPrompt(
+      { ...base, profile_basis: { kind: "random_sample", rows_examined: 50_000 } },
+      "q",
+      "metadata"
+    );
+    expect(prompt).toContain("RANDOM SAMPLE of 50,000");
+    expect(prompt).not.toContain("may not hold dataset-wide");
+  });
+
+  it("says NOTHING was measured for a describe-only schema", () => {
+    const prompt = buildCodeGenUserPrompt(
+      { ...base, profile_basis: { kind: "metadata", rows_examined: 0 } },
+      "q",
+      "metadata"
+    );
+    expect(prompt).toContain("no rows were read");
+    expect(prompt).toContain("anything about VALUES is unknown");
+  });
+
+  it("adds no qualifier for a full scan, or for a schema with no provenance", () => {
+    expect(
+      buildCodeGenUserPrompt(
+        { ...base, profile_basis: { kind: "full_scan", rows_examined: 2_532_000_000 } },
+        "q",
+        "metadata"
+      )
+    ).not.toContain("Statistics computed over");
+    // Older cached schemas carry no basis — stay silent rather than guess.
+    expect(buildCodeGenUserPrompt(base, "q", "metadata")).not.toContain("Statistics computed over");
+  });
+});

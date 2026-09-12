@@ -36,7 +36,7 @@ export async function POST(request: Request) {
 
     // trackRouteCost wraps the whole handler body so the pre-step's spend lands
     // in the cost ledger like suggest/title calls do.
-    const { entities, usedFallback } = await trackRouteCost(
+    const { entities, usedFallback, autoIncluded } = await trackRouteCost(
       { mode: "manifest-select", question },
       async () => {
         let raw = "";
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
       picked: entities,
       usedFallback,
     });
-    return NextResponse.json({ entities, usedFallback });
+    return NextResponse.json({ entities, usedFallback, autoIncluded });
   } catch (err) {
     return apiError("/api/manifest/select", err, "Failed to select entities");
   }

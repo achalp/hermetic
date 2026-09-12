@@ -1,6 +1,7 @@
 "use client";
 
 import type { SavedConnectionInfo } from "@/app/lib/api";
+import type { ProfileDepth } from "@/lib/constants";
 import { Drawer } from "./drawer";
 import { CollapsibleSection } from "./collapsible-section";
 import { AppearanceSection } from "./settings/appearance-section";
@@ -30,6 +31,7 @@ interface SettingsDrawerProps {
   onPhaseEffortChange: (phase: string, level: string) => void;
   sandboxRuntime: SandboxRuntimeId;
   onSandboxRuntimeChange: (runtime: SandboxRuntimeId) => void;
+  settingsNotice?: string | null;
   ollamaModel: string | null;
   onOllamaModelChange: (model: string | null) => void;
   /* Analysis defaults */
@@ -39,6 +41,8 @@ interface SettingsDrawerProps {
   onSchemaModeChange: (mode: SchemaMode) => void;
   composerSight: string;
   onComposerSightChange: (mode: string) => void;
+  profileDepth: ProfileDepth;
+  onProfileDepthChange: (depth: ProfileDepth) => void;
   /* Warehouse */
   isConnected: boolean;
   warehouseType: string | null;
@@ -66,6 +70,7 @@ export function SettingsDrawer({
   onPhaseEffortChange,
   sandboxRuntime,
   onSandboxRuntimeChange,
+  settingsNotice,
   ollamaModel,
   onOllamaModelChange,
   defaultStyle,
@@ -74,6 +79,8 @@ export function SettingsDrawer({
   onSchemaModeChange,
   composerSight,
   onComposerSightChange,
+  profileDepth,
+  onProfileDepthChange,
   isConnected,
   warehouseType,
   warehouseId,
@@ -103,6 +110,7 @@ export function SettingsDrawer({
           composerMode={composerMode}
           onComposerModeChange={onComposerModeChange}
           sandboxRuntime={sandboxRuntime}
+          settingsNotice={settingsNotice}
           onSandboxRuntimeChange={onSandboxRuntimeChange}
           ollamaModel={ollamaModel}
           onOllamaModelChange={onOllamaModelChange}
@@ -132,6 +140,8 @@ export function SettingsDrawer({
           onSchemaModeChange={(m) => onSchemaModeChange(m as SchemaMode)}
           composerSight={composerSight}
           onComposerSightChange={onComposerSightChange}
+          profileDepth={profileDepth}
+          onProfileDepthChange={onProfileDepthChange}
         />
       </CollapsibleSection>
 

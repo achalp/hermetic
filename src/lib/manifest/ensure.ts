@@ -33,7 +33,8 @@ export interface MaterializeDeps {
   extractBatch(
     targets: EntityTarget[],
     creds: RemoteCreds | undefined,
-    budgetMs: number
+    budgetMs: number,
+    onProgress?: (evt: import("@/lib/manifest/shared").ConnectProgress) => void
   ): Promise<BatchOutcome>;
   registerEntity(
     csvId: string,
@@ -43,6 +44,29 @@ export interface MaterializeDeps {
     isHivePartitioned: boolean
   ): void;
   newId(): string;
+  /**
+   * Short-lived memory of entities whose extraction FAILED, so a slow failure
+   * does not re-burn the connect budget its siblings need. INJECTED like every
+   * other I/O here: reaching for disk directly from this pure materializer
+   * made it read global state in tests (and would in any embedder).
+   * Optional — absent means "no memory", the pre-existing behavior.
+   */
+  /**
+   * DESCRIBE-only read: names, types, footer row count, no row egress. The
+   * INCLUSION FLOOR — when a value profile fails, an entity whose schema can
+   * still be read stays usable instead of being dropped from the question.
+   * Optional: absent means a failed profile is simply a failure (the old
+   * behavior), which is what the run-c4f47e34 drop looked like.
+   */
+  describeOne?(
+    target: EntityTarget,
+    creds: RemoteCreds | undefined,
+    csvId: string,
+    filename: string
+  ): Promise<CSVSchema>;
+  recentFailure?(sourceKey: string, fingerprint: string): Promise<string | null>;
+  rememberFailure?(sourceKey: string, fingerprint: string, reason: string): Promise<void>;
+  clearFailure?(sourceKey: string): Promise<void>;
 }
 
 /** The read target for one entity — the SAME normalizer the single-URL door uses. */
@@ -93,6 +117,7 @@ export async function materializeEntities(args: {
   force?: boolean;
   /** False on runtimes with no batch extractor — everything stays pending. */
   eagerCapable: boolean;
+  onProgress?: (evt: import("@/lib/manifest/shared").ConnectProgress) => void;
 }): Promise<MaterializeResult> {
   const states = new Map<string, EntityState>();
   const targets = new Map(args.entities.map((e) => [e.name, targetFor(e)]));
@@ -113,14 +138,38 @@ export async function materializeEntities(args: {
       args.deps.registerEntity(csvId, schema, t.readUrl, args.creds, t.isHivePartitioned);
       states.set(e.name, readyState(e, schema, csvId));
       fromCache++;
-    } else {
-      misses.push(t);
+      args.onProgress?.({ phase: "extracted", entity: e.name, ok: true, cached: true });
+      continue;
     }
+    // A recently-FAILED entity is left pending instead of re-attempted: its
+    // slow failure would consume the batch budget its siblings need (observed:
+    // one entity failing at ~90s against a 60s budget skipped 13 others on
+    // every connect). `force` — the user's explicit retry — skips this check.
+    const failed =
+      args.force || !args.deps.recentFailure
+        ? null
+        : await args.deps
+            .recentFailure(
+              entitySourceKey(t.readUrl, args.creds),
+              entityFingerprint(e, args.manifestHash)
+            )
+            .catch(() => null);
+    if (failed) {
+      states.set(e.name, { entity: e, status: "failed", error: failed });
+      args.onProgress?.({ phase: "extracted", entity: e.name, ok: false });
+      continue;
+    }
+    misses.push(t);
   }
 
   let skipped: string[] = misses.map((t) => t.name);
   if (misses.length > 0 && args.eagerCapable) {
-    const outcome = await args.deps.extractBatch(misses, args.creds, args.budgetMs);
+    const outcome = await args.deps.extractBatch(
+      misses,
+      args.creds,
+      args.budgetMs,
+      args.onProgress
+    );
     skipped = outcome.skipped;
     for (const t of misses) {
       const r = outcome.results.get(t.name);
@@ -138,8 +187,27 @@ export async function materializeEntities(args: {
             r.schema
           )
           .catch(() => {}); // a cache write is never fatal
+        // A success clears any remembered failure for this entity.
+        void args.deps.clearFailure?.(entitySourceKey(t.readUrl, args.creds)).catch(() => {});
       } else {
         states.set(t.name, { entity: e, status: "failed", error: r.error });
+        // Remember it so the NEXT connect spends its budget on entities that
+        // can succeed, rather than re-burning it here (cooldown-limited).
+        //
+        // A TIMEOUT is NOT remembered: it means "too slow for this budget",
+        // not "broken" — the entity may extract fine with a warm cache, less
+        // contention, or a bigger budget. Remembering it would turn a slow
+        // entity into a permanently-skipped one (a false negative this very
+        // mechanism introduced when the per-entity floor was too tight).
+        const isTimeout = /timed out|timeout/i.test(r.error);
+        if (!isTimeout)
+          void args.deps
+            .rememberFailure?.(
+              entitySourceKey(t.readUrl, args.creds),
+              entityFingerprint(e, args.manifestHash),
+              r.error
+            )
+            .catch(() => {});
       }
     }
   }
@@ -234,6 +302,35 @@ export async function ensureManifestEntities(args: {
             .catch(() => {});
         } catch (err) {
           states.set(name, { entity: e, status: "failed", error: errMessage(err) });
+        }
+      }
+    }
+
+    // DESCRIBE FLOOR: anything still not ready gets one cheap metadata read
+    // before being declared unavailable. Statistics improve plans; they are not a
+    // precondition for access, and dropping a table because its VALUES could not
+    // be summarized is how a question silently loses a table it needs.
+    if (args.deps.describeOne) {
+      for (const [name, state] of states) {
+        if (state.status === "ready" && state.csvId) continue;
+        const t = targetFor(state.entity);
+        const csvId = args.deps.newId();
+        try {
+          const described = await args.deps.describeOne(t, args.record.creds, csvId, name);
+          const schema = { ...described, csv_id: csvId, filename: name };
+          args.deps.registerEntity(
+            csvId,
+            schema,
+            t.readUrl,
+            args.record.creds,
+            t.isHivePartitioned
+          );
+          // NOT written to the schema cache: a describe-only artifact under the
+          // profile's key would read as a successful profile forever and block
+          // the upgrade (same rule as the remote-parquet route).
+          states.set(name, readyState(state.entity, schema, csvId));
+        } catch {
+          // Even the schema could not be read — the source really is unusable.
         }
       }
     }

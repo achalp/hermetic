@@ -535,6 +535,11 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
               }
             );
             wasmDuckDbAliases = built.aliases;
+            // Staged entity file lists (FILES dict) ride additionalFiles into
+            // the worker — the prompt/code reference them, never spell them.
+            if (built.stagedFiles.length > 0) {
+              additionalFiles = [...(additionalFiles ?? []), ...built.stagedFiles];
+            }
             manifestContext = buildManifestQuestionContext(resolvedManifest, {
               kind: "wasm-ranged",
               readExprs: built.readExprs,

@@ -38,6 +38,8 @@ interface InferenceSectionProps {
   onUiComposeModelChange: (model: ModelId) => void;
   sandboxRuntime: SandboxRuntimeId;
   onSandboxRuntimeChange: (runtime: SandboxRuntimeId) => void;
+  /** Surfaced when a settings write did not persist (never silently reverted). */
+  settingsNotice?: string | null;
   ollamaModel: string | null;
   onOllamaModelChange: (model: string | null) => void;
 }
@@ -99,6 +101,7 @@ export function InferenceSection({
   onUiComposeModelChange,
   sandboxRuntime,
   onSandboxRuntimeChange,
+  settingsNotice,
   ollamaModel,
   onOllamaModelChange,
 }: InferenceSectionProps) {
@@ -130,13 +133,14 @@ export function InferenceSection({
 
   const availableRuntimes = runtimes.filter((r) => r.available);
 
-  useEffect(() => {
-    if (availableRuntimes.length === 0) return;
-    const currentIsAvailable = availableRuntimes.some((r) => r.id === sandboxRuntime);
-    if (!currentIsAvailable) {
-      onSandboxRuntimeChange(availableRuntimes[0].id as SandboxRuntimeId);
-    }
-  }, [availableRuntimes, sandboxRuntime, onSandboxRuntimeChange]);
+  // The persisted runtime is genuinely unavailable (e.g. Docker pinned but the
+  // daemon is down). We do NOT auto-switch: a UI that silently PATCHes a
+  // runtime the user never chose is exactly how a deliberate pick got rewritten
+  // ("I set wasm, it went back to docker"). Instead surface it and let the user
+  // decide; the server already falls back safely at run time
+  // (getActiveSandboxRuntime), so nothing breaks in the meantime.
+  const pinnedUnavailable =
+    runtimes.length > 0 && !availableRuntimes.some((r) => r.id === sandboxRuntime);
 
   // Local backend tabs
   const [activeBackendTab, setActiveBackendTab] = useState<LocalBackendId>("mlx");
@@ -360,12 +364,31 @@ export function InferenceSection({
           onChange={(e) => onSandboxRuntimeChange(e.target.value as SandboxRuntimeId)}
           style={S.select}
         >
-          {availableRuntimes.map((r) => (
+          {/* The pinned runtime always appears as an option even when currently
+              unavailable, so the dropdown reflects the SAVED intent instead of
+              snapping to another value. */}
+          {(pinnedUnavailable
+            ? [
+                ...availableRuntimes,
+                { id: sandboxRuntime, label: `${sandboxRuntime} (unavailable)` },
+              ]
+            : availableRuntimes
+          ).map((r) => (
             <option key={r.id} value={r.id}>
               {r.label}
             </option>
           ))}
         </select>
+      )}
+      {pinnedUnavailable && (
+        <div style={{ ...S.hint, color: "var(--warn, #9a6b10)" }}>
+          {`"${sandboxRuntime}" is selected but not available right now — runs will use a fallback until it returns, or pick another runtime above.`}
+        </div>
+      )}
+      {settingsNotice && (
+        <div role="status" style={{ ...S.hint, color: "var(--warn, #9a6b10)" }}>
+          {settingsNotice}
+        </div>
       )}
     </div>
   );

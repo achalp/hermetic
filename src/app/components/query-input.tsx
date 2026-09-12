@@ -18,6 +18,9 @@ interface QueryInputProps {
    */
   mode: QueryMode;
   onModeChange: (mode: QueryMode) => void;
+  /** Source-aware placeholder (e.g. a manifest catalog's "Ask across N
+   *  tables…"); falls back to the mode default when absent. */
+  placeholderHint?: string;
 }
 
 export function QueryInput({
@@ -28,6 +31,7 @@ export function QueryInput({
   showModePicker = true,
   mode,
   onModeChange,
+  placeholderHint,
 }: QueryInputProps) {
   const [question, setQuestion] = useState(initialValue ?? "");
   const [prevInitial, setPrevInitial] = useState(initialValue);
@@ -54,7 +58,7 @@ export function QueryInput({
   const placeholder =
     mode === "investigate"
       ? "Investigate: pose a deep question — we'll plan multiple steps..."
-      : "Ask a question about your data...";
+      : (placeholderHint ?? "Ask a question about your data...");
 
   const submitLabel = isLoading
     ? mode === "investigate"

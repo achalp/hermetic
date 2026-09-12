@@ -21,6 +21,14 @@ export interface SkillRenderContext {
   schema: CSVSchema;
   /** Container memory cap label (e.g. "4.6"), null/undefined when unknown. */
   sandboxMemoryGb?: string | null;
+  /**
+   * Active sandbox runtime. Skills may render runtime-specific addenda for
+   * "wasm" (e.g. alias-list read idioms instead of glob paths — run 9ee0e56b);
+   * absent/"docker" renders the byte-identical default, which is what the
+   * golden transcripts and the equivalence snapshot pin. Callers gate this
+   * under llmReplayConfig() (host-derived input feeding a prompt).
+   */
+  runtime?: "docker" | "wasm";
 }
 
 /**

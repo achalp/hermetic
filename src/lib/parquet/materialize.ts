@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { healSchemaColumnMeta } from "@/lib/csv/schema-heal";
 import { join } from "node:path";
 import { mkdir, stat } from "node:fs/promises";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
@@ -127,7 +128,7 @@ _con.close()
       detected_domain: CSVSchema["detected_domain"];
     };
 
-    const schema: CSVSchema = {
+    const schema: CSVSchema = healSchemaColumnMeta({
       csv_id: csvId,
       filename,
       row_count: data.row_count,
@@ -136,7 +137,7 @@ _con.close()
       correlations: data.correlations ?? undefined,
       detected_domain: data.detected_domain ?? "general",
       source_type: "file",
-    };
+    });
     logger.info("Materialized CSV to Parquet", {
       csvId,
       rows: data.row_count,

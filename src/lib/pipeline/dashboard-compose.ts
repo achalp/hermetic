@@ -15,7 +15,7 @@
  * `composeAndStreamDashboard` runs the LLM + streams the finalized spec.
  */
 
-import { streamText } from "ai";
+import { streamText, generateText } from "ai";
 import type { DrillDownContext } from "@/lib/contracts/analysis-request";
 export type { DrillDownContext };
 import { getModel, cachedSystem } from "@/lib/llm/client";
@@ -49,6 +49,8 @@ import {
 import type { FindingIssue } from "@/lib/contracts/findings";
 import { type ValidStateKeys } from "@/lib/llm/resolve-placeholders";
 import { auditComputedKeys, type PatchLike } from "@/lib/pipeline/computed-key-audit";
+import { auditControllerRecipes } from "@/lib/pipeline/controller-recipe-audit";
+import { repairControllerRecipes } from "@/lib/pipeline/controller-recipe-repair";
 import {
   collectNarrativeStrings,
   collectGroundedValues,
@@ -461,6 +463,37 @@ export async function composeAndStreamDashboard(args: {
         unproduced: audit.unproduced,
         produced: audit.produced,
       });
+    }
+
+    // Baseline replay for DataController recipes (the controller sibling of the
+    // declared-series check): a recipe that cannot reproduce its own Python-
+    // derived seed would OVERWRITE correct values with wrong ones on every
+    // mount (run 861ef499: an all-years mean under a "Latest Year" title).
+    // A failing recipe first gets ONE targeted repair call, validated by the
+    // same replay — a validated repair keeps the chart interactive; anything
+    // else strips to the exact seeded values. Static beats wrong; a verified
+    // repair beats static.
+    const recipes = auditControllerRecipes(composedPatches);
+    if (recipes.failures.length > 0) {
+      const repair = await repairControllerRecipes(
+        composedPatches,
+        recipes.failures,
+        async (prompt) =>
+          (
+            await generateText({
+              model: getModel(uiComposeModel),
+              prompt,
+            })
+          ).text
+      );
+      logger.warn("Controller recipe failed baseline replay", {
+        repaired: repair.repaired,
+        stripped: repair.stripped,
+      });
+      for (const patch of repair.patches) {
+        composedPatches.push(patch);
+        emit(JSON.stringify(patch) + "\n");
+      }
     }
   } catch (streamErr) {
     if (!isClosed()) {

@@ -356,6 +356,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
         // grant covers all); WASM: primary at /data/input.csv, additional
         // entities materialized and delivered like workbook sheets.
         let wasmDuckDbAliases: { name: string; url: string }[] | undefined;
+        let manifestStagedFiles: { path: string; content: string }[] | undefined;
         let manifestEgressAllow: string[] | undefined;
         if (context.manifest && isRemote) {
           const resolvedManifest = resolveManifestQuestion(context.manifest, csvId);
@@ -372,6 +373,11 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
               }
             );
             wasmDuckDbAliases = built.aliases;
+            // Staged entity file lists (FILES dict) ride additionalFiles into
+            // every sub-step's worker — referenced, never spelled out.
+            if (built.stagedFiles.length > 0) {
+              manifestStagedFiles = built.stagedFiles;
+            }
             localFileContext = buildManifestQuestionContext(resolvedManifest, {
               kind: "wasm-ranged",
               readExprs: built.readExprs,
@@ -446,6 +452,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
               remoteAuthSubst,
               wasmFetchInputs,
               wasmDuckDbAliases,
+              additionalFiles: manifestStagedFiles,
               allowedEgressHosts: manifestEgressAllow,
             });
             await composeAndStreamDashboard({
@@ -610,6 +617,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           inputParquetPath: warehouseParquetFile,
           wasmFetchInputs,
           wasmDuckDbAliases,
+          additionalFiles: manifestStagedFiles,
           allowedEgressHosts: manifestEgressAllow,
           runtime: sandboxRuntime,
           model: codeGenModel,

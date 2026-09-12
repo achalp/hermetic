@@ -39,20 +39,22 @@ const OUTPUT = JSON.stringify({
 
 /** Script a docker-run dispatcher: per-entity python exec behavior in order. */
 function scriptDocker(perEntity: ("ok" | "fail")[], onPythonExec?: () => void) {
-  let entity = -1;
+  // Entities run CONCURRENTLY in one container, each with its own /data/eN.*
+  // slot — keyed by that index so a result can never be attributed to the
+  // wrong entity (the correctness risk parallelism introduces).
   run.mockImplementation(async (_bin, args) => {
     const joined = args.join(" ");
     if (args[0] === "run") return { stdout: "", stderr: "", exitCode: 0 };
     if (args[0] === "rm") return { stdout: "", stderr: "", exitCode: 0 };
-    if (joined.includes("cat > /data/script.py")) return { stdout: "", stderr: "", exitCode: 0 };
-    if (joined.includes("python3 /data/script.py")) {
-      entity++;
+    const slot = /\/data\/e(\d+)\./.exec(joined)?.[1];
+    if (joined.includes("cat > /data/e")) return { stdout: "", stderr: "", exitCode: 0 };
+    if (joined.includes("python3 /data/e")) {
       onPythonExec?.();
-      return { stdout: perEntity[entity] === "ok" ? "0\n" : "1\n", stderr: "", exitCode: 0 };
+      const i = Number(slot ?? 0);
+      return { stdout: perEntity[i] === "ok" ? "0\n" : "1\n", stderr: "", exitCode: 0 };
     }
-    if (joined.includes("cat /data/output.json"))
-      return { stdout: OUTPUT, stderr: "", exitCode: 0 };
-    if (joined.includes("cat /data/stderr.txt"))
+    if (joined.includes(".json")) return { stdout: OUTPUT, stderr: "", exitCode: 0 };
+    if (joined.includes(".err"))
       return { stdout: "duckdb.Error: HTTP 404", stderr: "", exitCode: 0 };
     return { stdout: "", stderr: "", exitCode: 0 };
   });
@@ -102,20 +104,71 @@ describe("extractRemoteParquetSchemaBatch", () => {
     expect("schema" in good).toBe(true);
   });
 
-  it("stops taking entities once the BUDGET is spent; the rest are skipped", async () => {
+  it("stops taking NEW entities once the BUDGET is spent; the rest are skipped", async () => {
     let now = 0;
     vi.spyOn(Date, "now").mockImplementation(() => now);
-    // Each python exec "costs" 40s of wall clock — the second entity must not start.
-    scriptDocker(["ok", "ok", "ok"], () => {
+    // Each python exec "costs" 40s of wall clock. Entities run CONCURRENTLY, so
+    // several start before the budget is spent — but once it IS spent, no
+    // further entity may start, and every unattempted one is reported skipped
+    // (skipped means PENDING to the caller, never failed).
+    scriptDocker(Array(8).fill("ok"), () => {
       now += 40_000;
     });
+    const names = ["a", "b", "c", "d", "e", "f", "g", "h"];
     const { results, skipped } = await extractRemoteParquetSchemaBatch(
-      [target("a"), target("b"), target("c")],
+      names.map(target),
       undefined,
       60_000
     );
-    expect([...results.keys()]).toEqual(["a", "b"]); // b started at 40s < 60s
-    expect(skipped).toEqual(["c"]); // c would start at 80s ≥ 60s
+    expect(skipped.length).toBeGreaterThan(0); // the budget did bound the work
+    // Attempted + skipped accounts for EVERY target, with no overlap.
+    expect([...results.keys()].length + skipped.length).toBe(names.length);
+    expect([...results.keys()].some((n) => skipped.includes(n))).toBe(false);
+  });
+
+  it("runs entities CONCURRENTLY (the serialization was an accident of shared file paths)", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    run.mockImplementation(async (_bin, args) => {
+      const joined = args.join(" ");
+      if (args[0] === "run" || args[0] === "rm") return { stdout: "", stderr: "", exitCode: 0 };
+      if (joined.includes("python3 /data/e")) {
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        await new Promise((r) => setTimeout(r, 5));
+        inFlight--;
+        return { stdout: "0\n", stderr: "", exitCode: 0 };
+      }
+      if (joined.includes(".json")) return { stdout: OUTPUT, stderr: "", exitCode: 0 };
+      return { stdout: "", stderr: "", exitCode: 0 };
+    });
+    const { results } = await extractRemoteParquetSchemaBatch(
+      ["a", "b", "c", "d", "e", "f"].map(target),
+      undefined,
+      60_000
+    );
+    expect(results.size).toBe(6);
+    expect(peak).toBeGreaterThan(1); // genuinely parallel
+  });
+
+  it("each entity reads its OWN slot — a result can never be attributed to another entity", async () => {
+    // The correctness risk parallelism introduces: shared /data/output.json
+    // would let one entity's schema land under another's name.
+    const seen: string[] = [];
+    run.mockImplementation(async (_bin, args) => {
+      const joined = args.join(" ");
+      if (args[0] === "run" || args[0] === "rm") return { stdout: "", stderr: "", exitCode: 0 };
+      if (joined.includes("python3 /data/e")) return { stdout: "0\n", stderr: "", exitCode: 0 };
+      if (joined.includes(".json")) {
+        seen.push(joined.slice(joined.lastIndexOf("/data/e")));
+        return { stdout: OUTPUT, stderr: "", exitCode: 0 };
+      }
+      return { stdout: "", stderr: "", exitCode: 0 };
+    });
+    await extractRemoteParquetSchemaBatch(["a", "b", "c"].map(target), undefined, 60_000);
+    // Three DISTINCT slot files were read — never one shared output path.
+    expect(new Set(seen).size).toBe(3);
+    expect(seen.every((p) => /\/data\/e\d+\.json/.test(p))).toBe(true);
   });
 
   it("returns immediately for an empty target list without touching docker", async () => {
@@ -158,5 +211,42 @@ describe("extractRemoteParquetSchemaBatch", () => {
       "acct.blob.core.windows.net",
       "overturemaps-us-west-2.s3.us-west-2.amazonaws.com",
     ]);
+  });
+  it("emits connect-progress phases: network-up then extracting/extracted per entity", async () => {
+    scriptDocker(["ok", "fail"]);
+    const events: import("@/lib/manifest/shared").ConnectProgress[] = [];
+    await extractRemoteParquetSchemaBatch([target("a"), target("b")], undefined, 60_000, (e) =>
+      events.push(e)
+    );
+    expect(events[0]).toMatchObject({ phase: "network-up" });
+    // One extracting + one extracted per entity, in order.
+    expect(
+      events.filter((e) => e.phase === "extracting").map((e) => (e as { entity: string }).entity)
+    ).toEqual(["a", "b"]);
+    const extracted = events.filter((e) => e.phase === "extracted") as {
+      entity: string;
+      ok: boolean;
+    }[];
+    expect(extracted).toEqual([
+      { phase: "extracted", entity: "a", ok: true },
+      { phase: "extracted", entity: "b", ok: false },
+    ]);
+  });
+  it("bounds a slow entity to the REMAINING budget so siblings are not starved", async () => {
+    // Regression: an entity that failed at ~90s against a 60s budget consumed
+    // the whole batch budget, so every sibling was skipped — and the next
+    // connect re-attempted the same entity forever.
+    scriptDocker(["ok", "ok"]);
+    await extractRemoteParquetSchemaBatch([target("a"), target("b")], undefined, 60_000);
+    // The per-entity exec timeout is never larger than what's left of the budget.
+    const execCalls = run.mock.calls.filter(
+      (c) => c[1][0] === "exec" && String(c[1].at(-1)).includes("python3 /data/e")
+    );
+    expect(execCalls.length).toBeGreaterThan(0);
+    for (const call of execCalls) {
+      const opts = call[2] as { timeoutMs?: number } | undefined;
+      expect(opts?.timeoutMs).toBeLessThanOrEqual(60_000);
+      expect(opts?.timeoutMs).toBeGreaterThan(0);
+    }
   });
 });

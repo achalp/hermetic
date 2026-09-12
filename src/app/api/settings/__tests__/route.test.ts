@@ -23,6 +23,7 @@ vi.mock("@/lib/runtime-config", () => ({
     uiCompose: "claude-sonnet-4-6",
   })),
   getActiveSandboxRuntime: vi.fn(() => "docker"),
+  getProfileDepth: vi.fn(() => 50_000),
 }));
 
 vi.mock("@/lib/secrets", async (importOriginal) => {

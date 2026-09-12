@@ -19,11 +19,52 @@ import {
 import {
   connectManifest,
   ensureManifestEntity,
+  getManifestEntityDetail,
   selectManifestEntities,
   type ManifestView,
   type ManifestEntityDetail,
 } from "@/app/lib/manifest-connect";
-import { isManifestUrl, MANIFEST_EAGER_BUDGET_MS } from "@/lib/manifest/shared";
+import { isManifestUrl, type ConnectProgress } from "@/lib/manifest/shared";
+
+/** One connect-progress event → a human phase line for the connect indicator. */
+function describeConnectPhase(evt: ConnectProgress): { phase: string; detail: string } {
+  switch (evt.phase) {
+    case "fetching":
+      return { phase: "fetching", detail: "Reading the catalog…" };
+    case "adapting":
+      return { phase: "adapting", detail: `Found ${evt.entities} tables — preparing…` };
+    case "network-up":
+      return { phase: "network-up", detail: "Opened a restricted network to the data host…" };
+    case "extracting":
+      return {
+        phase: "extracting",
+        detail: `Reading schema ${evt.index}/${evt.total}: ${evt.entity}…`,
+      };
+    case "extracted":
+      return {
+        phase: "extracted",
+        detail: evt.cached
+          ? `${evt.entity} (cached)`
+          : evt.ok
+            ? `${evt.entity} ✓`
+            : `${evt.entity} — will read on first use`,
+      };
+    case "connected":
+      return { phase: "connected", detail: `Connected — ${evt.entities} tables ready to query` };
+  }
+}
+
+/**
+ * What the CATALOG declares about an entity nobody has profiled yet — column
+ * names and descriptions from the manifest document itself, which cost nothing
+ * to show. Distinct from a CSVSchema: no dtypes, no samples, no statistics,
+ * because nothing has read the data.
+ */
+export interface ManifestEntityPreview {
+  name: string;
+  columns: { name: string; description: string }[];
+  description?: string;
+}
 
 export function useSourceSelect(args: {
   handleUpload: (csvId: string, schema: CSVSchema) => void;
@@ -46,6 +87,14 @@ export function useSourceSelect(args: {
   // path) or were console-logged only (local/upload), so a failure either hit the
   // Next.js error overlay or vanished silently.
   const [sourceError, setSourceError] = useState<string | null>(null);
+  // Live connect progress — the Docker manifest connect spins an egress network
+  // + a schema-extraction container per entity (~2 min); this narrates each
+  // phase so the user sees the server working instead of a silent spinner (the
+  // freeze that produced duplicate double-submitted connects).
+  const [connectProgress, setConnectProgress] = useState<{
+    phase: string;
+    detail: string;
+  } | null>(null);
   const errText = (err: unknown, fallback: string) =>
     err instanceof Error && err.message ? err.message : fallback;
 
@@ -86,14 +135,13 @@ export function useSourceSelect(args: {
   // page's ACTIVE SOURCE, which is what feeds those sections.
   const [manifest, setManifest] = useState<ManifestView | null>(null);
   const [activeEntityName, setActiveEntityName] = useState<string | null>(null);
-  /** Entity currently being introspected — drives the "loading" row + header hint. */
+  /** Entity currently being profiled — drives the "loading" row + header hint. */
   const [loadingEntityName, setLoadingEntityName] = useState<string | null>(null);
   /**
-   * Interrupt generation for the background-eager loop (D40 item 3): bumped by
-   * any USER action (entity click, question prep, reset) so the loop yields the
-   * single worker immediately instead of racing the user for it.
+   * The selected entity when it has NOT been profiled: what the catalog itself
+   * declares. Null whenever the active entity's real schema is loaded.
    */
-  const eagerGenRef = useRef(0);
+  const [entityPreview, setEntityPreview] = useState<ManifestEntityPreview | null>(null);
 
   /** Reflect a finished extraction in the entity list without a refetch. */
   const applyEntityDetail = useCallback((name: string, detail: ManifestEntityDetail) => {
@@ -119,39 +167,6 @@ export function useSourceSelect(args: {
     );
   }, []);
 
-  /**
-   * Background eager introspection (D40 item 3): on a runtime where the server
-   * could not be eager (wasm — every entity arrived pending), keep extracting
-   * entities AFTER the first one lands, inside the SAME 60s budget the docker
-   * batch gets, one at a time (each is a worker round trip). Yields instantly
-   * when the user clicks an entity or asks a question (generation check), and
-   * failures are silently skipped — this is a warm-up, not a gate.
-   */
-  const runBackgroundEager = useCallback(
-    (view: ManifestView, creds: RemoteParquetCreds | undefined, skip: string) => {
-      const gen = ++eagerGenRef.current;
-      const started = Date.now();
-      void (async () => {
-        for (const e of view.entities) {
-          if (eagerGenRef.current !== gen) return; // user took the worker
-          if (Date.now() - started >= MANIFEST_EAGER_BUDGET_MS) return;
-          if (e.name === skip || e.status === "ready" || e.status === "failed") continue;
-          try {
-            setLoadingEntityName(e.name);
-            const detail = await ensureManifestEntity(view, e.name, creds);
-            if (eagerGenRef.current !== gen) return;
-            applyEntityDetail(e.name, detail);
-          } catch {
-            // warm-up only — the entity stays pending and extracts on touch
-          } finally {
-            setLoadingEntityName((cur) => (cur === e.name ? null : cur));
-          }
-        }
-      })();
-    },
-    [applyEntityDetail]
-  );
-
   const handleRemoteFileSelect = useCallback(
     async (url: string, creds?: RemoteParquetCreds, force?: boolean) => {
       lastRemoteRef.current = { url, creds };
@@ -165,38 +180,32 @@ export function useSourceSelect(args: {
         // preferring one that is already ready (no extraction wait), else lazily
         // extracting the first.
         if (isManifestUrl(url)) {
-          const view = await connectManifest(url, creds, force);
+          const view = await connectManifest(url, creds, force, (evt) =>
+            setConnectProgress(describeConnectPhase(evt))
+          );
+          setConnectProgress(null);
           setManifest(view);
-          // Did the SERVER manage any eager introspection? (docker: yes, inside
-          // its 60s budget; wasm: no — every entity arrives pending.)
-          const serverWasEager = view.entities.some((e) => e.status === "ready");
-          const first = view.entities.find((e) => e.status === "ready") ?? view.entities[0];
-          if (first) {
-            // The dialog stays OPEN (its extracting spinner showing) until the
-            // first entity's schema lands — closing it earlier left the user
-            // staring at a blank page for the whole first extraction (author
-            // review #1). The list row also shows "loading…" via loadingEntityName.
-            setLoadingEntityName(first.name);
-            try {
-              const detail = await ensureManifestEntity(view, first.name, creds);
-              if (detail.csvId && detail.schema) {
-                setActiveEntityName(first.name);
-                // Reflect it in the LIST too — without this the auto-selected
-                // entity sat showing "not read yet" while being the active
-                // source (caught by the D40 background-eager tests).
-                applyEntityDetail(first.name, detail);
-                handleUpload(detail.csvId, detail.schema);
-              }
-            } finally {
-              setLoadingEntityName(null);
+          // TWO-TIER (profile-on-demand): connect LISTS the catalog and never
+          // profiles. Value profiling (the 500k-row sample) costs ~50s of egress
+          // PER ENTITY — measured on Overture division_area — so doing it for a
+          // whole catalog at connect burned minutes on entities the user may
+          // never ask about, and still could not finish. It now happens only
+          // when an analysis needs an entity, or when the user explicitly asks
+          // for it ("Profile" in the rail). Entities profiled in a PREVIOUS
+          // session still arrive ready: connect keeps the free cache pass.
+          //
+          // No background warm-up loop: speculative profiling against a metered
+          // source (object-store egress, a large warehouse) is exactly the cost
+          // a user cannot see or cancel.
+          const alreadyProfiled = view.entities.find((e) => e.status === "ready");
+          if (alreadyProfiled?.csvId) {
+            const detail = await getManifestEntityDetail(view.manifestId, alreadyProfiled.name);
+            if (detail.csvId && detail.schema) {
+              setActiveEntityName(alreadyProfiled.name);
+              handleUpload(detail.csvId, detail.schema);
             }
           }
           setShowLocalBrowser(false);
-          if (!serverWasEager && first) {
-            // D40 item 3: warm the rest in the background, same budget, until
-            // the user needs the worker for something real.
-            runBackgroundEager(view, creds, first.name);
-          }
           return;
         }
         const data = await extractRemoteParquetSchema(url, creds, force);
@@ -212,9 +221,10 @@ export function useSourceSelect(args: {
         setSourceError(errText(err, "Couldn't read that Parquet source."));
       } finally {
         setIsExtractingLocalSchema(false);
+        setConnectProgress(null); // clear the phase line on success or failure
       }
     },
-    [handleUpload, applyEntityDetail, runBackgroundEager]
+    [handleUpload]
   );
 
   /** Re-read the last remote Parquet source, bypassing the schema cache. */
@@ -266,36 +276,76 @@ export function useSourceSelect(args: {
   }, [handleUpload]);
 
   /**
-   * Select an entity in the Data Explorer list: lazily extract it if pending
-   * (the existing per-entity flow, both runtimes), then make it the ACTIVE
-   * SOURCE — the explorer's schema/profile/sample sections feed off that.
+   * Select an entity in the Data Explorer list. Selection is CHEAP: it never
+   * profiles. An entity already profiled (this session or a previous one, via
+   * the schema cache) becomes the active source with its full schema; one that
+   * isn't shows what the catalog itself declares — columns, descriptions, the
+   * manifest's row-count hint — plus a "Profile" button.
+   *
+   * Browsing a catalog must not cost ~50s of remote egress per click, and on a
+   * 1000-table warehouse it must not cost anything at all. Value profiling runs
+   * when a QUESTION needs the entity, or when the user asks for it here.
    */
   const selectManifestEntity = useCallback(
     async (name: string) => {
       if (!manifest || name === activeEntityName) return;
-      eagerGenRef.current++; // the user takes the worker — background eager yields
+      setSourceError(null);
+      try {
+        const detail = await getManifestEntityDetail(manifest.manifestId, name);
+        setActiveEntityName(name);
+        if (detail.csvId && detail.schema) {
+          setEntityPreview(null);
+          handleUpload(detail.csvId, detail.schema);
+        } else {
+          // Declared-only view. The previous entity's schema must NOT keep
+          // showing under this entity's name, so the preview takes over the
+          // rail's schema/profile/sample sections.
+          setEntityPreview({
+            name,
+            columns: detail.columnDocs ?? [],
+            ...(detail.description ? { description: detail.description } : {}),
+          });
+        }
+      } catch (err) {
+        console.warn("Manifest entity selection failed:", err);
+        setSourceError(errText(err, `Couldn't read entity "${name}".`));
+      }
+    },
+    [manifest, activeEntityName, handleUpload]
+  );
+
+  /**
+   * "Profile this table" — the EXPLICIT user action. Runs the same full
+   * extraction a question would (500k-row value profile, cached by fingerprint),
+   * then makes the entity the active source so its real schema, profile chips
+   * and sample rows render.
+   */
+  const profileManifestEntity = useCallback(
+    async (name: string) => {
+      if (!manifest) return;
       setIsExtractingLocalSchema(true);
       setLoadingEntityName(name);
       setSourceError(null);
       try {
         const detail = await ensureManifestEntity(manifest, name, lastRemoteRef.current?.creds);
         if (!detail.csvId || !detail.schema) {
-          setSourceError(detail.error ?? `Couldn't read entity "${name}".`);
+          setSourceError(detail.error ?? `Couldn't profile "${name}".`);
           return;
         }
-        // Reflect a lazy extraction in the list without a refetch round trip.
+        // Reflect the extraction in the list without a refetch round trip.
         applyEntityDetail(name, detail);
+        setEntityPreview(null);
         setActiveEntityName(name);
         handleUpload(detail.csvId, detail.schema);
       } catch (err) {
-        console.warn("Manifest entity selection failed:", err);
-        setSourceError(errText(err, `Couldn't read entity "${name}".`));
+        console.warn("Manifest entity profiling failed:", err);
+        setSourceError(errText(err, `Couldn't profile "${name}".`));
       } finally {
         setIsExtractingLocalSchema(false);
         setLoadingEntityName(null);
       }
     },
-    [manifest, activeEntityName, handleUpload, applyEntityDetail]
+    [manifest, handleUpload, applyEntityDetail]
   );
 
   /**
@@ -309,6 +359,19 @@ export function useSourceSelect(args: {
   } | null>(null);
 
   /**
+   * How the CURRENT question's table scope was decided — surfaced in the
+   * interstitial so the per-question pick (and especially the silent
+   * single-entity fallback) is visible instead of implied by the preview
+   * selection. "selecting" while the pre-step runs; cleared with the manifest.
+   */
+  const [manifestPick, setManifestPick] = useState<
+    | { kind: "selecting" }
+    | { kind: "picked"; names: string[]; dropped?: string[] }
+    | { kind: "fallback"; active: string | null }
+    | null
+  >(null);
+
+  /**
    * The selection pre-step + ensure, run BEFORE a question dispatches (both
    * modes — handleGuardedQuery is the shared gate). Never blocks the question:
    * any failure falls back to the single active entity.
@@ -317,29 +380,55 @@ export function useSourceSelect(args: {
     async (question: string) => {
       if (!manifest) {
         setManifestQuestion(null);
+        setManifestPick(null);
         return;
       }
-      eagerGenRef.current++; // question prep takes the worker
+      setManifestPick({ kind: "selecting" });
       try {
-        const { entities: picked } = await selectManifestEntities(manifest.manifestId, question);
+        const { entities: picked, autoIncluded = [] } = await selectManifestEntities(
+          manifest.manifestId,
+          question
+        );
         if (!picked?.length) throw new Error("selection unavailable");
 
         // Ensure every picked entity is ready (the existing lazy flow, with the
         // same loading UI a browser click drives). Kept sequential: each may be
         // a wasm two-hop worker extraction, and one worker at a time is plenty.
+        // ONE retry per entity: a transient network blip during extraction cost
+        // run a897dbcc its subject entity (the buildings of a buildings question).
         const ready: { name: string; csvId: string; detail: ManifestEntityDetail }[] = [];
+        const dropped: string[] = [];
         for (const name of picked) {
           setLoadingEntityName(name);
           try {
-            const detail = await ensureManifestEntity(manifest, name, lastRemoteRef.current?.creds);
+            let detail: ManifestEntityDetail;
+            try {
+              detail = await ensureManifestEntity(manifest, name, lastRemoteRef.current?.creds);
+            } catch {
+              detail = await ensureManifestEntity(manifest, name, lastRemoteRef.current?.creds);
+            }
             if (detail.csvId && detail.schema) ready.push({ name, csvId: detail.csvId, detail });
+            else dropped.push(name);
           } catch (err) {
             console.warn(`Manifest pre-step: entity "${name}" failed to load:`, err);
+            dropped.push(name);
           } finally {
             setLoadingEntityName(null);
           }
         }
-        if (ready.length === 0) throw new Error("no picked entity became ready");
+        // AUTO-INCLUDED escorts (boundary polygons) never satisfy a pick on
+        // their own: if every entity the MODEL chose failed to load, running on
+        // the escorts answers a different question than the one asked (run
+        // a897dbcc: a buildings question answered from division tables). Treat
+        // it as a failed pre-step → the single-active-entity fallback below.
+        const modelPickedReady = ready.filter((r) => !autoIncluded.includes(r.name));
+        if (ready.length === 0 || modelPickedReady.length === 0) {
+          throw new Error(
+            dropped.length
+              ? `picked entities failed to load: ${dropped.join(", ")}`
+              : "no picked entity became ready"
+          );
+        }
 
         // The PRIMARY (first picked) becomes the active source, so the request's
         // csv_id, the explorer highlight, and the pipeline's plumbing all agree.
@@ -350,14 +439,46 @@ export function useSourceSelect(args: {
           manifest_id: manifest.manifestId,
           entities: ready.map((r) => ({ name: r.name, csv_id: r.csvId })),
         });
+        setManifestPick({
+          kind: "picked",
+          names: ready.map((r) => r.name),
+          ...(dropped.length ? { dropped } : {}),
+        });
       } catch (err) {
         // Fall back to the single ACTIVE entity — a broken pre-step must never
-        // block the question (a degradation, not an error).
+        // block the question (a degradation, not an error). The interstitial
+        // surfaces the narrowing (it used to be invisible).
         console.warn("Manifest selection pre-step failed; single-entity fallback:", err);
+        // With profile-on-demand nothing is guaranteed profiled, so the fallback
+        // has to MAKE a source rather than assume one: profile the active entity
+        // (or the catalog's first) before giving up, else the question would
+        // dispatch against no data at all.
+        const fallbackName = activeEntityName ?? manifest.entities[0]?.name ?? null;
+        if (fallbackName) {
+          setLoadingEntityName(fallbackName);
+          try {
+            const detail = await ensureManifestEntity(
+              manifest,
+              fallbackName,
+              lastRemoteRef.current?.creds
+            );
+            if (detail.csvId && detail.schema) {
+              applyEntityDetail(fallbackName, detail);
+              setEntityPreview(null);
+              setActiveEntityName(fallbackName);
+              handleUpload(detail.csvId, detail.schema);
+            }
+          } catch (fallbackErr) {
+            console.warn("Manifest fallback entity failed to load:", fallbackErr);
+          } finally {
+            setLoadingEntityName(null);
+          }
+        }
         setManifestQuestion(null);
+        setManifestPick({ kind: "fallback", active: fallbackName });
       }
     },
-    [manifest, handleUpload]
+    [manifest, handleUpload, activeEntityName, applyEntityDetail]
   );
 
   /** Source-scoped UI state cleared by the page-level reset. */
@@ -366,11 +487,13 @@ export function useSourceSelect(args: {
     setIsExtractingLocalSchema(false);
     setHasRemoteSource(false);
     setSourceError(null);
-    eagerGenRef.current++;
     setManifest(null);
     setActiveEntityName(null);
     setLoadingEntityName(null);
+    setEntityPreview(null);
     setManifestQuestion(null);
+    setManifestPick(null);
+    setConnectProgress(null);
     lastRemoteRef.current = null;
   }, []);
 
@@ -381,6 +504,7 @@ export function useSourceSelect(args: {
     handleLocalFileSelect,
     handleRemoteFileSelect,
     refreshRemote,
+    connectProgress,
     hasRemoteSource,
     processUploadFile,
     handleSampleData,
@@ -390,8 +514,11 @@ export function useSourceSelect(args: {
     manifest,
     activeEntityName,
     loadingEntityName,
+    entityPreview,
     selectManifestEntity,
+    profileManifestEntity,
     manifestQuestion,
+    manifestPick,
     prepareManifestForQuestion,
   };
 }

@@ -12,6 +12,17 @@ const STANDALONE = process.env.HERMETIC_STANDALONE === "1";
 
 const nextConfig: NextConfig = {
   ...(STANDALONE ? { output: "standalone" as const } : {}),
+  // Dev request-log hygiene: the wasm ranged-read protocol emits one HEAD +
+  // several GETs PER FILE (a 520-file Overture question = thousands of lines
+  // that bury every signal-bearing log). The app logger carries the real
+  // telemetry (run lifecycle, range errors surface as [ERROR] lines), so the
+  // per-request access log for these routes is pure noise. Same for the
+  // static-ish pyodide/duckdb asset fetches.
+  logging: {
+    incomingRequests: {
+      ignore: [/^\/api\/wasm-range\//, /^\/pyodide\//, /^\/duckdb\//],
+    },
+  },
   // @duckdb/duckdb-wasm is loaded via a runtime `createRequire` (parquet-convert,
   // duckdb-engine) so Next's tracer can't see it — force it into the standalone
   // bundle, else the host-side parquet→CSV conversion 404s in the packaged app.

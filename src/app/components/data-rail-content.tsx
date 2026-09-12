@@ -43,6 +43,20 @@ interface DataRailContentProps {
   onRefreshSchema?: () => void;
   /** True while a refresh (or initial extraction) is in flight. */
   isRefreshing?: boolean;
+  /**
+   * Set when the selected manifest entity has NOT been profiled: what the
+   * catalog declares about it. Takes over the schema/profile/sample sections —
+   * without it the PREVIOUS entity's schema would sit under this entity's name.
+   */
+  unprofiledEntity?: {
+    name: string;
+    columns: { name: string; description: string }[];
+    description?: string;
+  } | null;
+  /** Run the full profile for `unprofiledEntity` (the explicit user action). */
+  onProfileEntity?: () => void;
+  /** True while that profile is running. */
+  isProfilingEntity?: boolean;
 }
 
 const sourceIcons: Record<DataRailContentProps["sourceType"], string> = {
@@ -90,6 +104,9 @@ export function DataRailContent({
   activeItem,
   onRefreshSchema,
   isRefreshing,
+  unprofiledEntity,
+  onProfileEntity,
+  isProfilingEntity,
 }: DataRailContentProps) {
   const [activeTable, setActiveTable] = useState<string>(tables?.[0]?.name ?? "");
   const [whSampleData, setWhSampleData] = useState<{ columns: string[]; rows: string[][] } | null>(
@@ -194,7 +211,53 @@ export function DataRailContent({
     };
   }, [isDragging]);
 
-  const detailContent = (
+  const declaredColumns = unprofiledEntity?.columns ?? [];
+
+  const detailContent = unprofiledEntity ? (
+    /* Not profiled: show only what the catalog itself states, and say so. The
+       alternative — inventing types and samples from column names — would put
+       numbers on screen that nothing measured. */
+    <>
+      <CollapsibleSection title="COLUMNS (DECLARED)" defaultOpen>
+        {declaredColumns.length > 0 ? (
+          <DeclaredColumns columns={declaredColumns} />
+        ) : (
+          <div style={{ fontSize: 12, color: "var(--color-surface-dark-text4)", padding: "8px 0" }}>
+            This catalog doesn&apos;t declare columns for {unprofiledEntity.name}.
+          </div>
+        )}
+      </CollapsibleSection>
+      <CollapsibleSection title="PROFILE" defaultOpen>
+        <div style={{ fontSize: 12, color: "var(--color-surface-dark-text3)", lineHeight: 1.5 }}>
+          {unprofiledEntity.description ? (
+            <p style={{ margin: "0 0 8px" }}>{unprofiledEntity.description}</p>
+          ) : null}
+          <p style={{ margin: "0 0 10px" }}>
+            Not profiled yet. Types, ranges, null counts and sample rows come from reading the table
+            — which happens when a question needs it, or when you ask for it now.
+          </p>
+          <button
+            type="button"
+            onClick={onProfileEntity}
+            disabled={isProfilingEntity || !onProfileEntity}
+            style={{
+              fontSize: 12,
+              padding: "6px 12px",
+              borderRadius: 4,
+              border: "1px solid var(--color-accent)",
+              background: "transparent",
+              color: "var(--color-accent)",
+              cursor: isProfilingEntity ? "default" : "pointer",
+              opacity: isProfilingEntity ? 0.6 : 1,
+              fontFamily: "inherit",
+            }}
+          >
+            {isProfilingEntity ? "Profiling…" : "Profile this table"}
+          </button>
+        </div>
+      </CollapsibleSection>
+    </>
+  ) : (
     <>
       <CollapsibleSection title="SCHEMA" defaultOpen>
         <SchemaSection
@@ -307,6 +370,36 @@ export function DataRailContent({
         /* Non-warehouse: single scroll */
         <>{detailContent}</>
       )}
+    </div>
+  );
+}
+
+/** Column names a manifest declares, with descriptions where it has them. No
+ *  type badge: the catalog's own type strings are not this app's dtypes, and a
+ *  guessed one would read as measured. */
+function DeclaredColumns({ columns }: { columns: { name: string; description: string }[] }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column" }}>
+      {columns.map((col) => (
+        <div
+          key={col.name}
+          style={{
+            display: "flex",
+            gap: 10,
+            padding: "6px 0",
+            borderBottom: "1px solid var(--color-surface-dark-2)",
+          }}
+        >
+          <span style={{ fontSize: 13, color: "var(--color-surface-dark-text2)", flexShrink: 0 }}>
+            {col.name}
+          </span>
+          {col.description && (
+            <span style={{ fontSize: 12, color: "var(--color-surface-dark-text4)" }}>
+              {col.description}
+            </span>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

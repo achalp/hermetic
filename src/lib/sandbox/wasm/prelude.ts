@@ -194,6 +194,21 @@ const REMOTE_READS: ReadonlyArray<{ readonly pattern: RegExp; readonly reason: s
     reason:
       "INSTALL httpfs — the DuckDB-WASM build ships without httpfs and instantiates no fetch bridge; remote reads go through the trusted core (§6a)",
   },
+  {
+    // A glob-shaped parquet path ANYWHERE in the code (run 9ee0e56b assigned
+    // the glob to a variable and f-string-interpolated it into read_parquet,
+    // so a call-site match would miss it): the WASM tier registers PER-FILE
+    // names — remote aliases and exact staged /data paths — which DuckDB-WASM
+    // cannot glob, so the pattern matches nothing and dies inside the engine
+    // as the anonymous _setThrew crash. Shape: a quoted PATH (has a slash)
+    // containing `**`, or a `*` in a final segment ending in .parquet — the
+    // slash requirement keeps markdown `**bold**` in docstrings unflagged.
+    pattern: /['"][^'"]*\/[^'"]*\*\*[^'"]*['"]|['"][^'"]*\*[^'"/]*\.parquet['"]/,
+    reason:
+      "uses a wildcard parquet path — the WASM tier registers exact per-file names (remote " +
+      "aliases and staged /data files), so a glob matches nothing and fails inside the engine. " +
+      "Use the exact read_parquet([...]) alias-list expression provided for each entity",
+  },
 ];
 
 /**
