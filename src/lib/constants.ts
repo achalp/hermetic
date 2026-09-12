@@ -182,18 +182,25 @@ export const MODEL_PRICING: Record<string, ModelPrice> = {
 // SANDBOX_RUNTIME=e2b still resolves to docker (lib/config.ts). Wiring a
 // cloud backend back would require re-adding one that preserves the
 // isolation guarantee.
-export const AVAILABLE_RUNTIMES = [{ id: "docker", label: "Docker (Local)" }] as const;
+export const AVAILABLE_RUNTIMES = [
+  { id: "docker", label: "Docker (Local)" },
+  { id: "wasm", label: "Built-in (WASM · no Docker)" },
+] as const;
 
-// `wasm` (Pyodide + DuckDB-WASM, an optional Docker-free runtime) is a KNOWN
-// runtime the type system + capability gate must account for, but it is
-// deliberately NOT in AVAILABLE_RUNTIMES — not user-selectable — until its
-// executor and the §7 isolation escape suite land (Phase 1c). Registering it
-// here forces the exhaustive RUNTIME_CAPABILITIES Record (capabilities.ts) to
-// declare it and makes planSandboxRouting handle it; today its capabilities are
-// all false, so the gate honestly REJECTS every wasm run (switch-to-Docker
-// message) rather than running un-isolated. See
-// specs/pyodide-wasm-sandbox-2026-08-26.md.
-export type SandboxRuntimeId = (typeof AVAILABLE_RUNTIMES)[number]["id"] | "wasm";
+// `wasm` used to be deliberately EXCLUDED here — "not user-selectable until its
+// executor and the §7 isolation escape suite land (Phase 1c)", when its
+// capabilities were all false and the gate rejected every wasm run. That is long
+// past: wasm executes, the escape suite landed, /api/runtimes has advertised it
+// as always-available since D17, and the packaged desktop app ran on NOTHING ELSE.
+//
+// Leaving it out had a live consequence, because isValidRuntimeId() is the guard
+// the Settings hook uses to adopt the server's answer:
+//     if (rt && isValidRuntimeId(rt)) setSandboxRuntime(rt);
+// "wasm" failed that test, so the UI could never represent it and fell back to
+// DEFAULT_SANDBOX_RUNTIME ("docker") — the Settings panel reported Docker while
+// every run used wasm, and a deliberate wasm pick "reverted to docker" on reload.
+// The write had always landed; the UI simply could not display it.
+export type SandboxRuntimeId = (typeof AVAILABLE_RUNTIMES)[number]["id"];
 
 /** Static fallback — prefer getActiveSandboxRuntime() which checks runtime config */
 export const DEFAULT_SANDBOX_RUNTIME: SandboxRuntimeId =
