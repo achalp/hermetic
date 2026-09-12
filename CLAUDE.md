@@ -56,6 +56,17 @@ Findings below were TRACED, not assumed — do not re-litigate without new evide
   harvest, sandboxMemoryGb label). HERMETIC_REPLAY_DEBUG=1 dumps full
   request bytes per replay lookup for CI-vs-local diffing.
 
+## Provisional decisions (NOT validated design — do not cite as settled)
+
+- Dashboard-integrity thresholds (`lib/compose/series-scale.ts`,
+  `lib/pipeline/data-sanity.ts`): every constant was reasoned from ONE exported
+  dashboard on 2026-09-12, never tuned against a corpus or shown to a reader.
+  `lintSeriesScale` also REWRITES charts the composer produced — a stronger claim
+  than the evidence supports. Read
+  `specs/dashboard-integrity-thresholds-2026-09-12.md` before changing,
+  defending, or citing any of it. The mechanisms are better supported than the
+  numbers.
+
 ## Deferred with rationale (decide before attempting)
 
 - BigQuery introspection N+1 → `INFORMATION_SCHEMA.TABLE_STORAGE`: needs LIVE

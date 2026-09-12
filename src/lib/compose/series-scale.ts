@@ -22,6 +22,13 @@
  * meaningful — one measure per axis instead of three sharing a nameless one.
  */
 
+/**
+ * PROVISIONAL — see specs/dashboard-integrity-thresholds-2026-09-12.md. These
+ * cut-offs were reasoned from ONE dashboard, not tuned against a corpus, and
+ * this lint REWRITES charts the composer produced. Change them on evidence, not
+ * to make a single dashboard look right.
+ */
+
 /** Magnitude gap beyond which a shared axis flattens the smaller series.
  *  10x is where the smaller series' variation stops being legible; the observed
  *  case was ~100x (vacancy 3-5.5 against homelessness 230-730). */

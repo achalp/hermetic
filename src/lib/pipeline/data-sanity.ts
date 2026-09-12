@@ -26,6 +26,12 @@
  * Everything here is advisory: it adds caveats, never edits a number.
  */
 
+/**
+ * PROVISIONAL — see specs/dashboard-integrity-thresholds-2026-09-12.md. Derived
+ * from one dashboard; only P_SIGNIFICANT and IDENTITY_R have justification from
+ * outside that run.
+ */
+
 /** Significance threshold for calling a slope "not significant". */
 const P_SIGNIFICANT = 0.05;
 /** Endpoint move (fraction of the series' typical level) that contradicts "flat". */
