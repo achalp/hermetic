@@ -9,7 +9,7 @@
  * machine without still works out of the box.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -102,5 +102,66 @@ describe("HERMETIC_DEFAULT_RUNTIME is a fallback, not a mandate", () => {
   it("FORCE still overrides everything — CI and tests need a hard pin", async () => {
     state.env = { HERMETIC_FORCE_RUNTIME: "wasm", HERMETIC_DEFAULT_RUNTIME: "docker" };
     expect(await getActive({ sandboxRuntime: "docker", dockerAvailable: true })).toBe("wasm");
+  });
+});
+
+describe("one-time migration off the forced-wasm pin", () => {
+  /**
+   * The packaged app used to set HERMETIC_FORCE_RUNTIME=wasm, which overrode
+   * config entirely — so a wasm "choice" written on that channel was an artifact
+   * of the force, not a decision. Observed live: a desktop install on 0.5.12 found
+   * Docker, recorded dockerAvailable:true, and still ran wasm because of that pin.
+   */
+  // Reads the config back from DISK rather than through the module's TTL cache:
+  // what survives the write is the thing a next launch actually sees.
+  async function active(cfg: Record<string, unknown>) {
+    const { setPathRoots } = await import("@/lib/paths");
+    setPathRoots({ dataRoot: dir });
+    const mod = await import("@/lib/runtime-config");
+    mod.setRuntimeConfig(cfg as never);
+    const runtime = mod.getActiveSandboxRuntime();
+    const onDisk = JSON.parse(readFileSync(join(dir, "runtime-config.json"), "utf-8")) as Record<
+      string,
+      unknown
+    >;
+    return { runtime, cfg: onDisk };
+  }
+
+  it("clears a leftover wasm pin once Docker is known to be present", async () => {
+    state.env = { HERMETIC_DEFAULT_RUNTIME: "wasm" };
+    const { runtime, cfg } = await active({ sandboxRuntime: "wasm", dockerAvailable: true });
+    expect(runtime).toBe("docker");
+    // Actually CLEARED on disk — setRuntimeConfig ignores `undefined`, so a
+    // migration that passed undefined would record success and change nothing.
+    expect(cfg.sandboxRuntime).toBeUndefined();
+    expect(cfg.runtimePinMigrated).toBe(true);
+  });
+
+  it("runs ONCE — a deliberate wasm pick afterwards is respected forever", async () => {
+    state.env = { HERMETIC_DEFAULT_RUNTIME: "wasm" };
+    await active({ sandboxRuntime: "wasm", dockerAvailable: true });
+    const second = await active({ sandboxRuntime: "wasm" });
+    expect(second.runtime).toBe("wasm");
+    expect(second.cfg.sandboxRuntime).toBe("wasm");
+  });
+
+  it("leaves a DOCKER pin alone, and does not fire without a wasm fallback channel", async () => {
+    state.env = { HERMETIC_DEFAULT_RUNTIME: "wasm" };
+    expect((await active({ sandboxRuntime: "docker", dockerAvailable: true })).runtime).toBe(
+      "docker"
+    );
+    // The web path has no wasm fallback configured: a wasm pin there was a real
+    // choice, never a forced artifact.
+    state.env = {};
+    const web = await active({ sandboxRuntime: "wasm", dockerAvailable: true });
+    expect(web.runtime).toBe("wasm");
+    expect(web.cfg.sandboxRuntime).toBe("wasm");
+  });
+
+  it("does not fire while Docker is absent — nothing to migrate toward", async () => {
+    state.env = { HERMETIC_DEFAULT_RUNTIME: "wasm" };
+    const r = await active({ sandboxRuntime: "wasm", dockerAvailable: false });
+    expect(r.runtime).toBe("wasm");
+    expect(r.cfg.sandboxRuntime).toBe("wasm");
   });
 });

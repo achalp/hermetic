@@ -65,6 +65,8 @@ export interface RuntimeConfig {
    * ProfileBasis, so the honest gain is on unsorted/local sources.
    */
   profileDepth?: ProfileDepth;
+  /** Set once the forced-wasm pin migration has run — see getActiveSandboxRuntime. */
+  runtimePinMigrated?: boolean;
   /** User-selected LLM provider override (takes priority over auto-detection) */
   activeProvider?: string;
   /**
@@ -322,6 +324,29 @@ export function getActiveSandboxRuntime(): SandboxRuntimeId {
   // docker and fails its first run — but the moment boot health records
   // dockerAvailable, or the user picks a runtime in Settings, that wins.
   const fallback = envConfig().HERMETIC_DEFAULT_RUNTIME;
+  // ONE-TIME migration off the forced-wasm era. The packaged app used to set
+  // HERMETIC_FORCE_RUNTIME=wasm, which overrode config entirely — so any wasm
+  // "choice" written on that channel was an artifact of the force, not a decision,
+  // and it now silently defeats the Docker preference the probe just established.
+  // Cleared once, on a channel that HAS a wasm fallback (i.e. the desktop), and
+  // recorded so a deliberate wasm pick made afterwards is never touched again.
+  if (
+    fallback === "wasm" &&
+    cfg.sandboxRuntime === "wasm" &&
+    !cfg.runtimePinMigrated &&
+    cfg.dockerAvailable === true
+  ) {
+    logger.info("Clearing a wasm runtime pin left over from the forced-runtime era");
+    const migrated = setRuntimeConfig({
+      // NULL, not undefined: setRuntimeConfig skips undefined values by design
+      // (so a partial update cannot accidentally erase a field) and treats null
+      // as the explicit clear. Passing undefined here would set the flag and
+      // leave the pin in place — a migration that records success and does nothing.
+      sandboxRuntime: null as unknown as undefined,
+      runtimePinMigrated: true,
+    });
+    return resolveActiveRuntime(migrated.sandboxRuntime, migrated.dockerAvailable);
+  }
   if (
     !cfg.sandboxRuntime &&
     cfg.dockerAvailable === undefined &&
