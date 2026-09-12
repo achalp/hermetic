@@ -36,8 +36,26 @@
 const P_SIGNIFICANT = 0.05;
 /** Endpoint move (fraction of the series' typical level) that contradicts "flat". */
 const FLAT_CONTRADICTION_MOVE = 0.2;
-/** Deviation from the local level that marks a point as a spike or dropout. */
+/** Deviation from the local level that marks a point as a spike or dropout —
+ *  a FLOOR, not the test. See SPIKE_VOLATILITY_MULTIPLE. */
 const SPIKE_DEVIATION = 0.4;
+
+/**
+ * How many times a series' OWN typical movement a point must deviate before it
+ * counts as anomalous.
+ *
+ * A fixed percentage cannot work across series: the first version used 40% flat
+ * and fired on `expansion_mrr_delta` in the golden ask-followup journey (41%
+ * below its neighbours at 2024-07). A monthly MRR *delta* swings like that
+ * routinely — that is what a delta is — while the King County homelessness
+ * series moves ~5-10% a year, so its 55% collapse is six to ten times anything
+ * it normally does. Same absolute deviation, opposite meanings.
+ *
+ * So the question is not "did it move a lot" but "did it move a lot FOR THIS
+ * SERIES". Both conditions must hold: past the floor above, and past this
+ * multiple of the series' habitual step.
+ */
+const SPIKE_VOLATILITY_MULTIPLE = 3;
 /** How closely the neighbours must agree for the middle point to be judged a
  *  spike rather than a step change in level. */
 const NEIGHBOUR_AGREEMENT = 0.3;
@@ -86,6 +104,24 @@ export function findSeriesOutliers(
       (p): p is { v: number; at: unknown } => typeof p.v === "number" && Number.isFinite(p.v)
     );
   if (points.length < 5) return []; // too short for "the local pattern" to exist
+
+  // The series' habitual step: the median relative change between consecutive
+  // points. A volatile series earns a high bar; a smooth one a low bar.
+  //
+  // TRIMMED, because a spike contributes two enormous steps (in and out) and
+  // would otherwise raise the bar past itself — the same self-hiding the median
+  // absolute deviation avoids above. Dropping the two largest steps removes
+  // exactly one spike's contribution however short the series is; on a long
+  // series it changes the median barely at all.
+  const steps: number[] = [];
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1]!.v;
+    if (prev === 0) continue;
+    steps.push(Math.abs((points[i]!.v - prev) / prev));
+  }
+  const trimmed = [...steps].sort((a, b) => a - b).slice(0, Math.max(1, steps.length - 2));
+  const typicalStep = median(trimmed);
+
   const out: SeriesAnomaly[] = [];
   for (let i = 1; i < points.length - 1; i++) {
     const prev = points[i - 1]!.v;
@@ -97,6 +133,8 @@ export function findSeriesOutliers(
     if (neighbourGap > NEIGHBOUR_AGREEMENT) continue;
     const deviation = (points[i]!.v - local) / Math.abs(local);
     if (Math.abs(deviation) < SPIKE_DEVIATION) continue;
+    // ...and it must be unusual FOR THIS SERIES, not merely large.
+    if (typicalStep > 0 && Math.abs(deviation) < typicalStep * SPIKE_VOLATILITY_MULTIPLE) continue;
     const at = points[i]!.at;
     out.push({
       series: seriesKey,

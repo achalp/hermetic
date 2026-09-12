@@ -53,6 +53,29 @@ describe("findSeriesOutliers", () => {
     expect(findSeriesOutliers(rows, "v")).toHaveLength(1);
   });
 
+  it("stays quiet on a VOLATILE series where a big swing is ordinary", () => {
+    // Held-out evidence, from CI rather than from the dashboard this was built
+    // on: the golden ask-followup journey carries `expansion_mrr_delta`, and the
+    // first version (a flat 40% cut-off) flagged 2024-07 at 41% below its
+    // neighbours. A monthly MRR DELTA swings like that routinely — that is what a
+    // delta is — while the King County series moves ~5-10% a year, so its 55%
+    // collapse is many times anything it normally does. Same absolute deviation,
+    // opposite meanings, which is why the test is relative to the series' own
+    // habitual step.
+    const mrrDelta = [
+      { m: "2024-01", d: 120 },
+      { m: "2024-02", d: 65 },
+      { m: "2024-03", d: 140 },
+      { m: "2024-04", d: 80 },
+      { m: "2024-05", d: 155 },
+      { m: "2024-06", d: 95 },
+      { m: "2024-07", d: 58 },
+      { m: "2024-08", d: 130 },
+      { m: "2024-09", d: 72 },
+    ];
+    expect(findSeriesOutliers(mrrDelta, "d", "m")).toEqual([]);
+  });
+
   it("stays quiet on a well-behaved series", () => {
     const rows = [{ v: 10 }, { v: 11 }, { v: 12 }, { v: 11 }, { v: 13 }, { v: 12 }];
     expect(findSeriesOutliers(rows, "v")).toEqual([]);

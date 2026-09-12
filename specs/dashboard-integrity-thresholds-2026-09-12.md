@@ -15,16 +15,17 @@ established that these are the right numbers.
 
 ## What is a decision, not a finding
 
-| Constant                  | Value | Where                | Basis                                                                                                 |
-| ------------------------- | ----- | -------------------- | ----------------------------------------------------------------------------------------------------- |
-| `SCALE_RATIO_LIMIT`       | 10×   | `series-scale.ts`    | "roughly where a smaller series stops being legible" — an eyeball judgement on one chart              |
-| `GROUP_SPAN_LIMIT`        | 4×    | `series-scale.ts`    | "the smallest series still occupies a quarter of the axis" — reasoned, never measured against readers |
-| `SPIKE_DEVIATION`         | 0.4   | `data-sanity.ts`     | chosen so the observed 2021 collapse (−55% vs neighbours) clears it with margin                       |
-| `NEIGHBOUR_AGREEMENT`     | 0.3   | `data-sanity.ts`     | chosen to separate a spike from a step on the one series examined                                     |
-| `FLAT_CONTRADICTION_MOVE` | 0.2   | `data-sanity.ts`     | a round number; the observed case moved 0.55, so anything below ~0.5 would have caught it             |
-| `P_SIGNIFICANT`           | 0.05  | `data-sanity.ts`     | convention, and the only constant here with an outside justification                                  |
-| `IDENTITY_R`              | 0.999 | `data-sanity.ts`     | float-noise margin below 1.0; the only other constant that is close to principled                     |
-| 5-row minimum             | —     | `findSeriesOutliers` | "too short for a local pattern to exist" — asserted, not derived                                      |
+| Constant                    | Value | Where                | Basis                                                                                                 |
+| --------------------------- | ----- | -------------------- | ----------------------------------------------------------------------------------------------------- |
+| `SCALE_RATIO_LIMIT`         | 10×   | `series-scale.ts`    | "roughly where a smaller series stops being legible" — an eyeball judgement on one chart              |
+| `GROUP_SPAN_LIMIT`          | 4×    | `series-scale.ts`    | "the smallest series still occupies a quarter of the axis" — reasoned, never measured against readers |
+| `SPIKE_DEVIATION`           | 0.4   | `data-sanity.ts`     | a FLOOR only; the real test is `SPIKE_VOLATILITY_MULTIPLE` below                                      |
+| `SPIKE_VOLATILITY_MULTIPLE` | 3×    | `data-sanity.ts`     | **has one piece of held-out evidence** — see "What CI already told us"                                |
+| `NEIGHBOUR_AGREEMENT`       | 0.3   | `data-sanity.ts`     | chosen to separate a spike from a step on the one series examined                                     |
+| `FLAT_CONTRADICTION_MOVE`   | 0.2   | `data-sanity.ts`     | a round number; the observed case moved 0.55, so anything below ~0.5 would have caught it             |
+| `P_SIGNIFICANT`             | 0.05  | `data-sanity.ts`     | convention, and the only constant here with an outside justification                                  |
+| `IDENTITY_R`                | 0.999 | `data-sanity.ts`     | float-noise margin below 1.0; the only other constant that is close to principled                     |
+| 5-row minimum               | —     | `findSeriesOutliers` | "too short for a local pattern to exist" — asserted, not derived                                      |
 
 ## The behaviour that is more invasive than it looks
 
@@ -37,6 +38,31 @@ JSON and merely read badly.
 That is a bigger claim to correctness than the constants currently support. A
 chart that a reader found acceptable can be split by a threshold nobody
 validated.
+
+## What CI already told us
+
+The first version of the outlier check used a flat 40% deviation. The **golden
+transcripts caught it immediately**: it fired on `expansion_mrr_delta` in the
+ask-followup journey (41% below its neighbours at 2024-07). A monthly MRR delta
+swings like that routinely — that is what a delta is — while the King County
+series moves ~5-10% a year, so its 55% collapse is many times anything it
+normally does. Same absolute deviation, opposite meanings.
+
+So the test is now relative to each series' own habitual step (median relative
+change between consecutive points, **trimmed** of the two largest, since a spike
+contributes two enormous steps and would otherwise raise the bar past itself).
+
+This is the only held-out evidence any constant here has, and it arrived by
+accident rather than by the corpus pass below. Two lessons worth keeping:
+
+- The golden suite is a usable corpus for checks like these. A failing golden
+  after a change of this kind is DATA about how often a check fires, not merely
+  a re-record chore.
+- The first draft of every check in this change was wrong in a way only real
+  data exposed: median-based outlier detection flagged a rising series' endpoint,
+  a widest-gap axis split still flattened a series, and a flat percentage fired
+  on ordinary volatility. Treat a new threshold here as wrong until data says
+  otherwise.
 
 ## What would turn this into a design
 
