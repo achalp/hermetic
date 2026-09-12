@@ -618,9 +618,14 @@ if [ "$RUNTIME" = "docker" ]; then
   if ! command -v docker &>/dev/null; then
     warn "Docker is not installed."
     echo ""
-    echo -e "    Install Docker Desktop:"
-    echo -e "      ${BOLD}Mac:${RESET}   ${BLUE}https://www.docker.com/products/docker-desktop/${RESET}"
-    echo -e "      ${BOLD}Linux:${RESET} ${BLUE}https://docs.docker.com/engine/install/${RESET}"
+    # Preference order, not alphabetical: Docker Desktop is deprecated under some
+    # corporate policies, and it used to be the ONLY option named here. Colima and
+    # Rancher Desktop give the same daemon with no licence question.
+    echo -e "    Install a Docker daemon (any of these):"
+    echo -e "      ${BOLD}Colima${RESET}          ${BLUE}brew install colima docker${RESET}  ${DIM}(recommended)${RESET}"
+    echo -e "      ${BOLD}Rancher Desktop${RESET} ${BLUE}https://rancherdesktop.io/${RESET}"
+    echo -e "      ${BOLD}Docker Desktop${RESET}  ${BLUE}https://www.docker.com/products/docker-desktop/${RESET}  ${DIM}(check your org's policy)${RESET}"
+    echo -e "      ${BOLD}Linux engine${RESET}    ${BLUE}https://docs.docker.com/engine/install/${RESET}"
     echo ""
     echo -e "    Then re-run this script."
     echo ""
@@ -641,6 +646,25 @@ if [ "$RUNTIME" = "docker" ]; then
         if docker info &>/dev/null 2>&1; then
           echo ""
           ok "Docker daemon is running (via Colima)"
+          DOCKER_STARTED=true
+          break
+        fi
+        echo -n "."
+        sleep 2
+      done
+    fi
+
+    # Try Rancher Desktop before Docker Desktop — same daemon, no licence
+    # question. (Its CLI lives in ~/.rd/bin, which is why the desktop sidecar
+    # lists that directory ahead of Docker Desktop's; see src-tauri/src/lib.rs.)
+    if [ "$DOCKER_STARTED" = false ] && [ "$(uname)" = "Darwin" ] && [ -d "/Applications/Rancher Desktop.app" ]; then
+      echo -e "    Starting Rancher Desktop..."
+      open -a "Rancher Desktop"
+      echo -ne "    Waiting for Docker daemon"
+      for i in $(seq 1 30); do
+        if docker info &>/dev/null 2>&1; then
+          echo ""
+          ok "Docker daemon is running (via Rancher Desktop)"
           DOCKER_STARTED=true
           break
         fi
@@ -682,6 +706,7 @@ if [ "$RUNTIME" = "docker" ]; then
       echo -e "    Start the Docker daemon with one of:"
       echo -e "      ${BOLD}colima start${RESET}              (Colima)"
       if [ "$(uname)" = "Darwin" ]; then
+        echo -e "      ${BOLD}open -a \"Rancher Desktop\"${RESET}  (Rancher Desktop)"
         echo -e "      ${BOLD}open -a Docker${RESET}            (Docker Desktop)"
       fi
       if [ "$(uname)" = "Linux" ]; then
