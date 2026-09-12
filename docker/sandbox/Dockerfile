@@ -16,7 +16,7 @@ RUN pip install --no-cache-dir \
     matplotlib==3.10.1 \
     seaborn==0.13.2 \
     scikit-learn==1.6.1 \
-    duckdb==1.2.2 \
+    duckdb==1.4.3 \
     pyflakes==3.2.0
 
 # Create non-root user for sandbox execution

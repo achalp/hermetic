@@ -107,6 +107,42 @@ Maintained as of 2026-09-10; update rows when the wiring changes.
   materialization cap. Gated Node-Pyodide integration under
   `HERMETIC_WASM_TEST=1`.
 
+## Engine versions (both tiers, stable)
+
+Both runtimes run **DuckDB 1.4.3**, and the pins that produce it are:
+
+| Tier   | Pin                                                  | Engine |
+| ------ | ---------------------------------------------------- | ------ |
+| Docker | `duckdb==1.4.3` (`docker/sandbox/Dockerfile`)        | 1.4.3  |
+| WASM   | `@duckdb/duckdb-wasm@1.32.0` (latest STABLE wrapper) | 1.4.3  |
+
+The npm version is the JS WRAPPER's, never the engine's — `build-duckdb-wasm-assets.mjs`
+asks DuckDB for `version()` and derives the extension-repo path from it
+(`public/duckdb-wasm/ext/v1.4.3/`), so the engine version is observable rather
+than assumed.
+
+They were previously **three minors apart**: Docker on 1.2.2 (a pin that never
+moved) and WASM on a dev wrapper carrying engine 1.5.4. Nothing recorded a reason
+for either, and the one plausible justification — needing duckdb-wasm's _blocking_
+build for the synchronous `duckdb.sql()` shim — does not hold, since the stable
+wrapper ships `duckdb-browser-blocking.mjs` too.
+
+The cost of that skew was not hypothetical divergence: it made the Docker path
+**useless as a debugging oracle**. Three consecutive hypotheses about a wasm-only
+`stoi: no conversion` failure all "cleared" when tested natively, because native
+was a different engine. Aligning is what makes a wasm failure reproducible on the
+tier that has a debugger.
+
+Aligning on 1.5.x is not available as stable: pip has 1.5.4/1.5.5, but stable
+duckdb-wasm tops out at engine 1.4.3. The choice is _aligned and fully stable_ at
+1.4.3, or a newer engine with a prerelease wrapper on one side.
+
+Fidelity across the Docker bump 1.2.2 → 1.4.3 was verified by running the profiler
+over the same 750k-row 3-file dataset on both: row count, profile basis, detected
+domain, every dtype, every meta field, correlations and sample rows identical. The
+only difference was the ORDER of equal-count `top_values`, which is pre-existing
+nondeterminism (the old profiler differs from itself across runs), not an engine change.
+
 ## Known runtime gaps (open)
 
 | Gap                                                     | Detail                                                                                                                                                                                                                                                                                                      |
