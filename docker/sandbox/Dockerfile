@@ -1,7 +1,7 @@
 # Pinned by digest (multi-arch manifest list, python 3.11.15-slim-trixie,
 # 2026-07-14) so the "reproducible builds" claim below is actually true —
 # a bare tag is a moving target. Update deliberately, with the pip pins.
-FROM python:3.11-slim@sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93
+FROM python:3.14-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6
 
 # Pin package versions for reproducible builds. pyflakes is a fast static
 # undefined-name checker (F821): the pre-flight lint uses it to catch a missing
