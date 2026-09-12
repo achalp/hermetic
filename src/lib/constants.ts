@@ -60,6 +60,16 @@ export const WAREHOUSE_QUERY_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
 // (retention policy 2026-08-05, lib/csv/storage.ts).
 export const CSV_TTL_MS = 3 * 60 * 60 * 1000; // 3 hours idle
 export const DOCKER_SANDBOX_IMAGE = "hermetic-sandbox";
+
+/**
+ * Where the sandbox image comes from when it was never built locally — the
+ * desktop app ships a sidecar, not a repo, so it has no Dockerfile to build.
+ * Published and attested per release by .github/workflows/release.yml, and
+ * ANONYMOUSLY pullable (verified against the live registry), so a user who just
+ * downloaded an app needs no credentials. Always pulled at the app's own
+ * version, never `latest` — see ensure-image.ts.
+ */
+export const SANDBOX_REMOTE_IMAGE_REPO = "ghcr.io/achalp/hermetic-sandbox";
 // Fraction of the Docker/colima DAEMON's total memory that a single sandbox
 // container may use (`docker run --memory`). The remainder is headroom for the
 // daemon/VM's own OS and reclaimable page cache. This is a RATIO, not a byte

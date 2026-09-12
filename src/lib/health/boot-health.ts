@@ -11,6 +11,7 @@
  * would fail for that reason, so an empty log is a genuine all-clear.
  */
 import { logger, errMessage } from "@/lib/logger";
+import { getActiveSandboxRuntime, setRuntimeConfig } from "@/lib/runtime-config";
 import { getActiveProvider } from "@/lib/llm/client";
 import { run } from "@/lib/sandbox/docker-utils";
 
@@ -23,17 +24,39 @@ async function dockerDaemonReachable(): Promise<boolean> {
 }
 
 /**
- * Sandbox prerequisite: Docker is the only runtime, so the daemon must be
- * reachable — installed-but-not-running is the classic silent failure the UI
- * can't catch until the first analysis fails mid-run.
+ * Sandbox prerequisite — and the place the runtime CHOICE gets its input.
+ *
+ * The probe is recorded, not just logged: `resolveActiveRuntime` prefers Docker
+ * whenever `dockerAvailable` is not false, so on a machine with no daemon that
+ * value is the difference between falling back to wasm and resolving to docker
+ * and failing the first analysis. The desktop app has no other prober.
+ *
+ * The warning is RUNTIME-AWARE. It used to fire unconditionally, on the premise
+ * that "Docker is the only runtime" — untrue since the wasm tier shipped, and
+ * the packaged desktop app (which runs wasm and has no Docker) announced
+ * "analyses will fail until Docker is running" on every single launch. A warning
+ * that is wrong every time teaches people to ignore the ones that are right.
  */
 async function checkSandbox(): Promise<void> {
-  if (await dockerDaemonReachable()) {
+  const reachable = await dockerDaemonReachable();
+  // Record BEFORE reading the active runtime: the resolution below depends on it.
+  try {
+    setRuntimeConfig({ dockerAvailable: reachable });
+  } catch (err) {
+    logger.warn("boot health: could not persist docker availability", {
+      error: errMessage(err),
+    });
+  }
+  if (reachable) {
     logger.info("boot health: Docker daemon reachable");
-  } else {
+    return;
+  }
+  if (getActiveSandboxRuntime() === "docker") {
     logger.warn(
       "boot health: the Docker daemon is not reachable — analyses will fail until Docker is running"
     );
+  } else {
+    logger.info("boot health: no Docker daemon; analyses run on the built-in engine (wasm)");
   }
 }
 

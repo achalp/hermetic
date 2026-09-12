@@ -110,6 +110,16 @@ fn spawn_sidecar(app: &tauri::App, dir: &PathBuf) -> std::io::Result<(Child, Str
                 format!("{home}/.claude/local"),
                 format!("{home}/.local/bin"),
                 format!("{home}/bin"),
+                // Docker CLI locations. A GUI launch inherits a bare PATH, and
+                // docker is frequently NOT in homebrew: Rancher Desktop installs
+                // to ~/.rd/bin and Docker Desktop to ~/.docker/bin or inside the
+                // app bundle. Observed on a dev machine with a working daemon:
+                // `docker` at ~/.rd/bin, invisible to the sidecar — the same scar
+                // as `which claude` above, which is why these are listed rather
+                // than assumed.
+                format!("{home}/.rd/bin"),
+                format!("{home}/.docker/bin"),
+                "/Applications/Docker.app/Contents/Resources/bin".to_string(),
             ];
             let mut parts: Vec<String> = if base.is_empty() {
                 Vec::new()
@@ -170,8 +180,12 @@ fn spawn_sidecar(app: &tauri::App, dir: &PathBuf) -> std::io::Result<(Child, Str
         .env("HERMETIC_SCRATCH_ROOT", data.join("scratch"))
         .env("HERMETIC_PYODIDE_DIR", dir.join("pyodide"))
         .env("HERMETIC_EGRESS_FETCH_BIN", egress)
-        // The desktop ships the WASM tier + no Docker — force it, predictably.
-        .env("HERMETIC_FORCE_RUNTIME", "wasm")
+        // NO forced runtime. The desktop used to pin wasm (D15: "predictable even
+        // if the user has Docker"), which left every desktop user on the tier with
+        // the least proof behind it and no way off. Resolution is now the ordinary
+        // one — boot health probes the daemon and persists dockerAvailable, so a
+        // machine with Docker gets Docker and one without falls back to wasm.
+        .env("HERMETIC_DEFAULT_RUNTIME", "wasm")
         // Lets /api/health report desktop:true so Settings only offers the
         // update controls where a shell is actually watching for commands.
         .env("HERMETIC_DESKTOP", "1")

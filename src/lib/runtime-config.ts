@@ -316,5 +316,18 @@ export function getActiveSandboxRuntime(): SandboxRuntimeId {
   const forced = envConfig().HERMETIC_FORCE_RUNTIME;
   if (forced === "wasm" || forced === "docker") return forced;
   const cfg = getRuntimeConfig();
+  // HERMETIC_DEFAULT_RUNTIME is a FALLBACK, not a mandate: it applies only when
+  // the probe has not run yet and the user has pinned nothing. The desktop sets
+  // it to wasm so a fresh install on a machine with no daemon never resolves to
+  // docker and fails its first run — but the moment boot health records
+  // dockerAvailable, or the user picks a runtime in Settings, that wins.
+  const fallback = envConfig().HERMETIC_DEFAULT_RUNTIME;
+  if (
+    !cfg.sandboxRuntime &&
+    cfg.dockerAvailable === undefined &&
+    (fallback === "wasm" || fallback === "docker")
+  ) {
+    return fallback;
+  }
   return resolveActiveRuntime(cfg.sandboxRuntime, cfg.dockerAvailable);
 }

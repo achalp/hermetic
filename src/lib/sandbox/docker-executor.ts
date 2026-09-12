@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { ensureSandboxImage } from "@/lib/sandbox/ensure-image";
+import { version as APP_VERSION } from "../../../package.json";
 import type { ExecutionResult } from "@/lib/contracts/execution";
 import type { AdditionalFile, SandboxRunHooks } from "@/lib/contracts/execution";
 import { pythonNanPrelude } from "./prelude";
@@ -58,6 +60,16 @@ export async function executeSandbox(
   const isLargeData = !!localMountPath || !!inputParquetPath || codeDoesRemoteIo(code);
 
   try {
+    // 0. The image must EXIST. The web path builds it (start.sh); the desktop app
+    //    ships no Dockerfile, so if it is missing this pulls the attested release
+    //    image from GHCR. Progress is surfaced through the run's own hook — a
+    //    first-run download of several hundred MB must be visible, not a stall.
+    await ensureSandboxImage(APP_VERSION, (evt) => {
+      if (evt.phase === "pulling" && evt.note) {
+        hooks?.onProgress?.({ phase: "starting", detail: evt.note });
+      }
+    });
+
     // 1. Create container (with optional bind-mount for browsed local files).
     //    `sleep infinity` — the container's own lifetime must not be a hidden
     //    self-kill either; it's torn down in the finally (or by the store
