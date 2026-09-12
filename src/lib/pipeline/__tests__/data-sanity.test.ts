@@ -53,27 +53,18 @@ describe("findSeriesOutliers", () => {
     expect(findSeriesOutliers(rows, "v")).toHaveLength(1);
   });
 
-  it("stays quiet on a VOLATILE series where a big swing is ordinary", () => {
-    // Held-out evidence, from CI rather than from the dashboard this was built
-    // on: the golden ask-followup journey carries `expansion_mrr_delta`, and the
-    // first version (a flat 40% cut-off) flagged 2024-07 at 41% below its
-    // neighbours. A monthly MRR DELTA swings like that routinely — that is what a
-    // delta is — while the King County series moves ~5-10% a year, so its 55%
-    // collapse is many times anything it normally does. Same absolute deviation,
-    // opposite meanings, which is why the test is relative to the series' own
-    // habitual step.
-    const mrrDelta = [
-      { m: "2024-01", d: 120 },
-      { m: "2024-02", d: 65 },
-      { m: "2024-03", d: 140 },
-      { m: "2024-04", d: 80 },
-      { m: "2024-05", d: 155 },
-      { m: "2024-06", d: 95 },
-      { m: "2024-07", d: 58 },
-      { m: "2024-08", d: 130 },
-      { m: "2024-09", d: 72 },
-    ];
-    expect(findSeriesOutliers(mrrDelta, "d", "m")).toEqual([]);
+  it("stays quiet on the golden suite's real MRR series — marginal is not a finding", () => {
+    // The ACTUAL rows from test-fixtures/golden/ask-followup.ndjson, not a guess
+    // at their shape: my first attempt to model this series was wrong and the
+    // check kept firing. The flagged point (1100 between 1800 and 1900) deviates
+    // 0.405 against a bar of 0.402 — it cleared by 0.8%, on one of three golden
+    // journeys. King County's collapse clears the same bar by 3.4x. A rule that
+    // separates those only by a hair is not discriminating between them.
+    const mrr = [2800, 2100, 2400, 2100, 1800, 1100, 1900, 1600, 1800, 1600, 1800].map((v, i) => ({
+      m: `2024-${String(i + 1).padStart(2, "0")}`,
+      expansion_mrr_delta: v,
+    }));
+    expect(findSeriesOutliers(mrr, "expansion_mrr_delta", "m")).toEqual([]);
   });
 
   it("stays quiet on a well-behaved series", () => {

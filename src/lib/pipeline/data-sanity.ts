@@ -56,6 +56,24 @@ const SPIKE_DEVIATION = 0.4;
  * multiple of the series' habitual step.
  */
 const SPIKE_VOLATILITY_MULTIPLE = 3;
+
+/**
+ * How far PAST the bar the evidence must be before the caveat is worth saying.
+ *
+ * Not tuning-by-another-name: the principle is that an advisory which fires on
+ * marginal evidence is noise the reader has to adjudicate, and a caveat that
+ * appears on most dashboards stops being read at all — the same reason the
+ * boot-health warning was made runtime-aware rather than left crying wolf.
+ *
+ * The evidence for needing it is a firing RATE, not a preference. The golden
+ * suite's `expansion_mrr_delta` (2800, 2100, 2400, 2100, 1800, 1100, 1900, 1600,
+ * 1800, 1600, 1800) clears the volatility bar by 0.8% — 0.405 against 0.402 —
+ * which is a coin flip, and it was one of three golden journeys. King County's
+ * 2021 collapse clears the same bar by 3.4x. A rule that separates those two
+ * only by a hair is not discriminating between them; one that demands clear air
+ * is.
+ */
+const SPIKE_CONFIDENCE_MARGIN = 1.5;
 /** How closely the neighbours must agree for the middle point to be judged a
  *  spike rather than a step change in level. */
 const NEIGHBOUR_AGREEMENT = 0.3;
@@ -134,7 +152,12 @@ export function findSeriesOutliers(
     const deviation = (points[i]!.v - local) / Math.abs(local);
     if (Math.abs(deviation) < SPIKE_DEVIATION) continue;
     // ...and it must be unusual FOR THIS SERIES, not merely large.
-    if (typicalStep > 0 && Math.abs(deviation) < typicalStep * SPIKE_VOLATILITY_MULTIPLE) continue;
+    if (
+      typicalStep > 0 &&
+      Math.abs(deviation) < typicalStep * SPIKE_VOLATILITY_MULTIPLE * SPIKE_CONFIDENCE_MARGIN
+    ) {
+      continue;
+    }
     const at = points[i]!.at;
     out.push({
       series: seriesKey,

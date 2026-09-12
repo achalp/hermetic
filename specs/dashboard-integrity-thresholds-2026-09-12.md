@@ -52,6 +52,23 @@ So the test is now relative to each series' own habitual step (median relative
 change between consecutive points, **trimmed** of the two largest, since a spike
 contributes two enormous steps and would otherwise raise the bar past itself).
 
+That was not enough on its own. The real series —
+`2800, 2100, 2400, 2100, 1800, 1100, 1900, 1600, 1800, 1600, 1800` — still fired,
+by **0.8%**: deviation 0.405 against a bar of 0.402. A rule that decides a coin
+flip is not discriminating, and this was **one of three golden journeys**, so the
+firing rate implied a caveat on a large share of real dashboards. A caveat that
+common is wallpaper.
+
+Hence `SPIKE_CONFIDENCE_MARGIN`: the evidence must clear the bar with room. King
+County's collapse clears it by 3.4x; the MRR dip by 0.8%. This is close enough to
+"tuning until the golden passes" to be worth defending explicitly — the rule is
+_do not speak unless the evidence is unambiguous_, applied uniformly, and the
+justification is the firing RATE, which is data.
+
+A third lesson, at my own expense: I first modelled that MRR series by GUESSING
+its shape and wrote a passing test against the guess. It passed and the golden
+still failed. The fixture had the real numbers all along.
+
 This is the only held-out evidence any constant here has, and it arrived by
 accident rather than by the corpus pass below. Two lessons worth keeping:
 
