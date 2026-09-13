@@ -108,6 +108,24 @@ export interface ScalarPropLint {
   unrenderable: ScalarPropFix[];
 }
 
+/**
+ * The KEY holding the intended scalar, for callers that must re-point a BINDING
+ * rather than replace a value. An injector that decides using the recovered
+ * value but emits the record's own binding re-creates the defect one step later,
+ * when that binding resolves — which is exactly what shipped in the first cut.
+ */
+export function recoverScalarKey(value: Record<string, unknown>): string | undefined {
+  const scalarEntries = Object.entries(value).filter(
+    ([, v]) => typeof v === "number" || typeof v === "string" || typeof v === "boolean"
+  );
+  if (scalarEntries.length === 1) return scalarEntries[0]![0];
+  for (const key of HEADLINE_KEYS) {
+    const v = value[key];
+    if (typeof v === "number" || typeof v === "string" || typeof v === "boolean") return key;
+  }
+  return undefined;
+}
+
 /** Pull the intended scalar out of a record, or undefined when it is a guess. */
 export function recoverScalar(
   value: Record<string, unknown>
