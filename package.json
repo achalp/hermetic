@@ -108,7 +108,7 @@
     "html-to-image": "^1.11.13",
     "jspdf": "^4.2.0",
     "maplibre-gl": "^6.5.0",
-    "next": "16.2.12",
+    "next": "16.3.4",
     "papaparse": "^5.5.3",
     "pg": "^8.20.0",
     "plotly.js-cartesian-dist": "^3.4.0",
