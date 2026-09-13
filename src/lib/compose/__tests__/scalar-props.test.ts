@@ -10,7 +10,12 @@
  * that exists to stop duplicates. One cause, two symptoms.
  */
 import { describe, it, expect } from "vitest";
-import { lintScalarProps, recoverScalar, scalarPropKeys } from "@/lib/compose/scalar-props";
+import {
+  lintScalarProps,
+  recoverScalar,
+  recoverScalarKey,
+  scalarPropKeys,
+} from "@/lib/compose/scalar-props";
 
 /** The real tile from the run. */
 const correlationRecord = {
@@ -52,6 +57,34 @@ describe("recoverScalar", () => {
 
   it("refuses to guess when several scalars compete and none is conventional", () => {
     expect(recoverScalar({ alpha: 1, beta: 2, gamma: 3 })).toBeUndefined();
+  });
+});
+
+describe("recoverScalarKey", () => {
+  /**
+   * Shipped in v0.5.14 and still produced [object Object] on a live run: the tile
+   * injector DECIDED using the recovered scalar but EMITTED the record's own
+   * binding, which resolved back to the record at render time. Judging by one
+   * value and emitting another just moves the defect downstream, so the caller
+   * needs the KEY to re-point the binding with.
+   */
+  it("names the field holding the headline number", () => {
+    expect(recoverScalarKey(correlationRecord)).toBe("pearson_r");
+  });
+
+  it("names the only scalar when a record has exactly one", () => {
+    expect(recoverScalarKey({ total: 42, meta: { a: 1 } })).toBe("total");
+  });
+
+  it("refuses to name one when the choice is a guess", () => {
+    expect(recoverScalarKey({ alpha: 1, beta: 2, gamma: 3 })).toBeUndefined();
+  });
+
+  it("agrees with recoverScalar — the key must address the same value", () => {
+    const key = recoverScalarKey(correlationRecord)!;
+    expect(correlationRecord[key as keyof typeof correlationRecord]).toBe(
+      recoverScalar(correlationRecord)
+    );
   });
 });
 
