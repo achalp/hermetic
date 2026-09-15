@@ -18,6 +18,7 @@
  */
 import { spawn, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { tmpdir, homedir } from "node:os";
 import { Readable } from "node:stream";
 import { once } from "node:events";
 import { logger, serializeError, errMessage } from "@/lib/logger";
@@ -34,6 +35,27 @@ import {
 /** Overall wall-clock budget for a NON-streaming CLI call before we kill it.
  *  Generous because a cold `claude` start can take a few seconds and hard
  *  prompts run for a while; streaming relies on responsesSSE's stall timeout. */
+/**
+ * Working directory for every spawned CLI — deliberately NOT inherited.
+ *
+ * The desktop sidecar runs from inside /Applications/Hermetic.app, and an in-app
+ * update REPLACES that bundle. The still-running process then holds a working
+ * directory that no longer exists, and every spawn fails with "The current
+ * working directory was deleted" — observed live: run 14825d1f burned all four
+ * attempts in 2.5s reporting "Code produced no output", because code generation
+ * never happened at all. The app stays dead until it is restarted.
+ *
+ * An inherited cwd is the wrong dependency in any case. On the web path it is the
+ * repo, so the CLI can pick up hermetic's OWN CLAUDE.md and project config as
+ * ambient context for calls that should carry only the prompt we built. A neutral
+ * directory that our updater cannot delete removes both problems; the CLI's auth
+ * and user settings live under $HOME and do not depend on cwd.
+ */
+function cliSpawnCwd(): string {
+  const dir = tmpdir();
+  return existsSync(dir) ? dir : homedir();
+}
+
 export const CLAUDE_CLI_REQUEST_TIMEOUT_MS = 10 * 60_000; // 10 minutes
 
 /** Above this system-prompt size we fold it into the stdin prompt instead of
@@ -322,7 +344,10 @@ export function supportsEffortFlag(binary: string): Promise<boolean> {
   let cached = effortSupportCache.get(binary);
   if (!cached) {
     cached = new Promise<boolean>((resolve) => {
-      const probe = spawn(binary, ["--help"], { stdio: ["ignore", "pipe", "ignore"] });
+      const probe = spawn(binary, ["--help"], {
+        stdio: ["ignore", "pipe", "ignore"],
+        cwd: cliSpawnCwd(),
+      });
       let out = "";
       probe.stdout.on("data", (d: Buffer) => {
         out += d.toString();
@@ -436,6 +461,7 @@ export function claudeCliFetch(opts: { binaryPath?: string; timeoutMs?: number }
     const child = spawn(binary, args, {
       stdio: ["pipe", "pipe", "pipe"],
       env: childEnv as NodeJS.ProcessEnv,
+      cwd: cliSpawnCwd(),
     });
 
     // Distinguish a failed spawn (ENOENT) from a running process: `spawn` fires
