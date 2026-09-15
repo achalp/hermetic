@@ -177,6 +177,12 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Pre-cache Pyodide wheels for the browser-analysis e2e
         run: node scripts/cache-pyodide-wheels.mjs
+      # Build the DuckDB-WASM browser bundle: without it every DuckDB e2e
+      # case hit `test.skip(!assetsPresent)` and the engine the desktop
+      # ships was tested only on developer machines (handoff 2026-09-15 #3).
+      # The skips were silent — CI stayed green while covering nothing.
+      - name: Build duckdb-wasm browser assets (/duckdb/*)
+        run: pnpm run build:duckdb-wasm
       - run: pnpm test:e2e
       - name: Upload Playwright report on failure
         if: failure()

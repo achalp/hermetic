@@ -17,6 +17,9 @@ import {
   getSandboxMemoryLimitGbLabel,
   sandboxMemoryRunArgs,
   resetDaemonMemoryCacheForTests,
+  getPromptMemoryGbLabel,
+  WASM_MEMORY_GB_LABEL,
+  DAEMON_PROBE_RETRY_MS,
 } from "@/lib/sandbox/memory-budget";
 
 const mockedRun = vi.mocked(run);
@@ -84,11 +87,35 @@ describe("sandbox memory budget", () => {
     expect(await sandboxMemoryRunArgs()).toEqual([]);
   });
 
-  it("does NOT cache a failure — a later probe retries", async () => {
-    mockedRun.mockRejectedValueOnce(new Error("transient"));
-    expect(await getDaemonMemoryBytes()).toBeNull();
-    infoReturns(2 * GiB);
-    expect(await getDaemonMemoryBytes()).toBe(2 * GiB);
+  it("caches a FAILURE for the TTL — repeat callers don't re-spawn docker info", async () => {
+    // Handoff finding #2 (2026-09-15): on a Docker-less machine every caller
+    // re-spawned `docker info` (a process + 5s timeout each). Failure is now
+    // negative-cached for DAEMON_PROBE_RETRY_MS.
+    vi.useFakeTimers();
+    try {
+      mockedRun.mockRejectedValue(new Error("no daemon"));
+      expect(await getDaemonMemoryBytes()).toBeNull();
+      expect(await getDaemonMemoryBytes()).toBeNull();
+      expect(mockedRun).toHaveBeenCalledTimes(1);
+
+      // After the TTL a started daemon is discovered.
+      vi.advanceTimersByTime(DAEMON_PROBE_RETRY_MS + 1);
+      infoReturns(2 * GiB);
+      expect(await getDaemonMemoryBytes()).toBe(2 * GiB);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("wasm prompt label is the wasm32 CONSTANT — no docker probe at all", async () => {
+    expect(await getPromptMemoryGbLabel("wasm")).toBe(WASM_MEMORY_GB_LABEL);
+    expect(mockedRun).not.toHaveBeenCalled();
+  });
+
+  it("docker prompt label delegates to the daemon-derived cap", async () => {
+    infoReturns(4 * GiB);
+    // 4 GiB * default fraction 0.8 = 3.2
+    expect(await getPromptMemoryGbLabel("docker")).toBe("3.2");
   });
 
   it("treats a zero/garbage MemTotal as unknown", async () => {

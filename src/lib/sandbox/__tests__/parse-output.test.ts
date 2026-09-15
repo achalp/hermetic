@@ -764,3 +764,44 @@ describe("runtime-aware DuckDB-config diag (parity audit)", () => {
     expect(res.execDiag).toContain("prelude config block did not run");
   });
 });
+
+describe("contentless engine conversion errors (stoi — handoff 2026-09-15 #4)", () => {
+  const failing = (stderr: string) => ({
+    ...base,
+    exitCode: 1,
+    readFile: io({ "/data/stderr.txt": stderr }),
+  });
+
+  it("converts `stoi: no conversion` into a strategy-changing, legible error", async () => {
+    const r = await parseSandboxOutput(
+      failing("Traceback ...\nduckdb.InvalidInputException: stoi: no conversion\n")
+    );
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error).toContain("CONTENTLESS");
+      expect(r.error).toContain("TRY_CAST");
+      // The retry must be steered to a DIFFERENT shape, not a repeat.
+      expect(r.error).toContain("Repeating the same query shape will fail identically");
+    }
+  });
+
+  it("also matches the std::sto* siblings", async () => {
+    const r = await parseSandboxOutput(failing("std::invalid_argument: stod: no conversion"));
+    if (!r.success) expect(r.error).toContain("CONTENTLESS");
+    expect(r.success).toBe(false);
+  });
+
+  it("does NOT intercept a conversion error that carries its evidence", async () => {
+    const r = await parseSandboxOutput(
+      failing(
+        "duckdb.ConversionException: Could not convert string 'abc' to INT32 in column 'year'"
+      )
+    );
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      // Evidence-bearing errors keep their own message for the retry loop.
+      expect(r.error).toContain("Could not convert string 'abc'");
+      expect(r.error).not.toContain("CONTENTLESS");
+    }
+  });
+});

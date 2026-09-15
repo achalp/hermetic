@@ -3,6 +3,15 @@
 Written so another agent, on another machine, can continue without reconstructing
 context. State as of the last commit below; verify before trusting any of it.
 
+> **Status update (same day, machine WITH the rust toolchain):** the merge
+> plan below completed (rustls #244 → #243 → v0.5.16 released), #233 merged.
+> Findings **2, 3, 4** below are FIXED (negative-cached daemon probes + a
+> wasm-honest memory label; CI builds `public/duckdb-wasm` for e2e; a
+> `stoi: no conversion` classifier in parse-output steers retries to a
+> different code shape). Finding **1** (the wasm `stoi` blocker itself)
+> remains OPEN — the new hint makes it legible, not fixed; the native-oracle
+> repro against real Overture data is still the next step.
+
 ## Where things stand
 
 - `main` is at **v0.5.15** (`557954ea`). Released and published.

@@ -14,6 +14,7 @@
  */
 import os from "node:os";
 import { run } from "./docker-utils";
+import { DAEMON_PROBE_RETRY_MS } from "./memory-budget";
 import { logger, errMessage } from "@/lib/logger";
 
 /** Max processes/threads per sandbox container. Generous for DuckDB's thread
@@ -35,6 +36,7 @@ export function sandboxCpuBudget(): number {
 // probe: the daemon's CPU count is fixed for the process's lifetime, but a
 // transient `docker info` failure must not poison the value forever.
 let cachedDaemonCpus: number | null = null;
+let failedCpuProbeAt = 0;
 let inflightCpus: Promise<number | null> | null = null;
 
 /**
@@ -50,6 +52,12 @@ let inflightCpus: Promise<number | null> | null = null;
  */
 export function getDaemonCpuCount(): Promise<number | null> {
   if (cachedDaemonCpus != null) return Promise.resolve(cachedDaemonCpus);
+  // Failure is cached for a short TTL (same rationale as memory-budget.ts):
+  // a Docker-less machine must not pay a spawn + timeout per caller, while a
+  // daemon started mid-session is still discovered.
+  if (failedCpuProbeAt && Date.now() - failedCpuProbeAt < DAEMON_PROBE_RETRY_MS) {
+    return Promise.resolve(null);
+  }
   if (!inflightCpus) {
     inflightCpus = run("docker", ["info", "--format", "{{.NCPU}}"], { timeoutMs: 5_000 })
       .then((r) => {
@@ -62,12 +70,14 @@ export function getDaemonCpuCount(): Promise<number | null> {
           exitCode: r.exitCode,
           stdout: r.stdout.trim().slice(0, 80),
         });
+        failedCpuProbeAt = Date.now();
         return null;
       })
       .catch((err) => {
         logger.warn("`docker info` failed while probing daemon CPU count", {
           error: errMessage(err),
         });
+        failedCpuProbeAt = Date.now();
         return null;
       })
       .finally(() => {
@@ -81,6 +91,7 @@ export function getDaemonCpuCount(): Promise<number | null> {
  *  failure paths independently. No effect on production call paths. */
 export function resetDaemonCpuCacheForTests(): void {
   cachedDaemonCpus = null;
+  failedCpuProbeAt = 0;
   inflightCpus = null;
 }
 

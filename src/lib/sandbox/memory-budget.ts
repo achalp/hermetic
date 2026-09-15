@@ -22,10 +22,14 @@ function memoryFraction(): number {
   return sandboxMemoryFraction(DEFAULT_SANDBOX_MEMORY_FRACTION);
 }
 
-// Cache only a SUCCESSFUL probe: the daemon allocation is fixed for the
-// process's lifetime, but a transient `docker info` failure must not poison the
-// value forever, so a null result is not cached and a later call retries.
+// A SUCCESS is cached forever (the daemon allocation is fixed for the
+// process's lifetime). A FAILURE is cached for a short TTL: on a Docker-less
+// machine every caller used to re-spawn `docker info` and fail again — two
+// probes per wasm run, each a process spawn + 5s timeout budget — while a
+// daemon started mid-session is still discovered once the TTL lapses.
+export const DAEMON_PROBE_RETRY_MS = 60_000;
 let cachedDaemonBytes: number | null = null;
+let failedProbeAt = 0;
 let inflight: Promise<number | null> | null = null;
 
 /**
@@ -35,6 +39,9 @@ let inflight: Promise<number | null> | null = null;
  */
 export function getDaemonMemoryBytes(): Promise<number | null> {
   if (cachedDaemonBytes != null) return Promise.resolve(cachedDaemonBytes);
+  if (failedProbeAt && Date.now() - failedProbeAt < DAEMON_PROBE_RETRY_MS) {
+    return Promise.resolve(null);
+  }
   if (!inflight) {
     inflight = run("docker", ["info", "--format", "{{.MemTotal}}"], { timeoutMs: 5_000 })
       .then((r) => {
@@ -47,12 +54,14 @@ export function getDaemonMemoryBytes(): Promise<number | null> {
           exitCode: r.exitCode,
           stdout: r.stdout.trim().slice(0, 80),
         });
+        failedProbeAt = Date.now();
         return null;
       })
       .catch((err) => {
         logger.warn("`docker info` failed while probing daemon memory", {
           error: errMessage(err),
         });
+        failedProbeAt = Date.now();
         return null;
       })
       .finally(() => {
@@ -66,6 +75,7 @@ export function getDaemonMemoryBytes(): Promise<number | null> {
  *  failure paths independently. No effect on production call paths. */
 export function resetDaemonMemoryCacheForTests(): void {
   cachedDaemonBytes = null;
+  failedProbeAt = 0;
   inflight = null;
 }
 
@@ -108,4 +118,30 @@ export async function getSandboxMemoryLimitGbLabel(): Promise<string | null> {
   const mb = await getSandboxMemoryLimitMb();
   if (mb == null) return null;
   return (mb / 1024).toFixed(1);
+}
+
+/**
+ * The wasm tier's prompt label. NOT host-derived: the browser execution
+ * worker lives in a wasm32 address space (4 GB hard architectural ceiling)
+ * and Pyodide's practical heap is ~2 GB regardless of machine RAM — a 64 GB
+ * workstation buys the worker nothing. A CONSTANT is therefore more honest
+ * than `os.totalmem()`, and it keeps the docker probe entirely off the wasm
+ * path (this tier previously got NO figure at all: the docker-derived label
+ * was null off-docker, so planet-scale guidance degraded to "limited RAM"
+ * on exactly the tier with the least headroom).
+ */
+export const WASM_MEMORY_GB_LABEL = "2.0";
+
+/**
+ * The memory figure for the CODE-GEN PROMPT, runtime-aware: the wasm
+ * constant on the wasm tier, the docker-daemon-derived cap elsewhere.
+ * Replay-pinned to "4.0" like the docker path (host-derived prompt input).
+ */
+export async function getPromptMemoryGbLabel(runtime: string): Promise<string | null> {
+  if (runtime === "wasm") {
+    const { llmReplayConfig } = await import("@/lib/llm/replay");
+    if (llmReplayConfig()) return "4.0";
+    return WASM_MEMORY_GB_LABEL;
+  }
+  return getSandboxMemoryLimitGbLabel();
 }
