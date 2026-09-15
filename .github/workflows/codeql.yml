@@ -45,6 +45,6 @@ jobs:
 
       # JS/TS is interpreted — no build step; CodeQL analyzes the source tree.
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@6f5948dfacef28e207b48d0905cf90c03365536d # v3
+        uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v3
         with:
           category: "/language:javascript-typescript"
