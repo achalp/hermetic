@@ -17,7 +17,7 @@ import { llmReplayConfig } from "@/lib/llm/replay";
  */
 const skillRuntime = (): "docker" | "wasm" | undefined =>
   llmReplayConfig() ? undefined : getActiveSandboxRuntime();
-import { getSandboxMemoryLimitGbLabel } from "@/lib/sandbox/memory-budget";
+import { getPromptMemoryGbLabel } from "@/lib/sandbox/memory-budget";
 import type { CSVSchema, SchemaMode } from "@/lib/contracts/data-schema";
 import type { ConversationTurn } from "@/lib/contracts/storage-types";
 
@@ -268,10 +268,11 @@ export async function generateAnalysisCode(
   // code-gen retries, the schema is identical → cache hits. Non-chat content is
   // byte-identical to buildCodeGenUserPrompt; chat moves history after the
   // (cached) schema.
-  // Derived at runtime from the Docker daemon's own allocation (memoized), so the
-  // model plans against the SAME hard cap the container enforces — not a stale
-  // hardcoded figure. Null (docker absent) → the prompt omits a specific number.
-  const sandboxMemoryGb = await getSandboxMemoryLimitGbLabel();
+  // Runtime-aware ceiling: the docker daemon's real allocation (memoized) on
+  // docker; the wasm32 constant on wasm (a docker probe returned null there,
+  // leaving the most-constrained tier promptless about memory). Null only
+  // when docker is active but unprobeable → the prompt omits the figure.
+  const sandboxMemoryGb = await getPromptMemoryGbLabel(getActiveSandboxRuntime());
   const schemaBlock = buildCodeGenSchemaBlock(
     schema,
     mode,
@@ -378,9 +379,9 @@ export async function prewarmCodeGenCache(
   if (getActiveProvider() !== "anthropic") return;
   try {
     // Must match generateAnalysisCode's value exactly or the cached prefix this
-    // warms won't be read back. getSandboxMemoryLimitGbLabel is memoized, so it
-    // returns the same figure for both.
-    const sandboxMemoryGb = await getSandboxMemoryLimitGbLabel();
+    // warms won't be read back. getPromptMemoryGbLabel is memoized underneath,
+    // so it returns the same figure for both.
+    const sandboxMemoryGb = await getPromptMemoryGbLabel(getActiveSandboxRuntime());
     const content = systemOnly
       ? [{ type: "text" as const, text: "\n## Question\nwarmup" }]
       : [

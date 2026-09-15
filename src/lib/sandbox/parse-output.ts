@@ -444,6 +444,35 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
         execDiag,
       };
     }
+    // CONTENTLESS engine conversion error (`stoi: no conversion` and its
+    // std::sto* siblings): a C++ exception escaping DuckDB with NO column,
+    // value, or statement attached — so the retry loop regenerated identical
+    // code four times over 35 minutes (run 3885e46a, wasm + Overture). The
+    // hint cannot fix a possible engine bug, but it converts a dead end into
+    // a legible failure and steers the retry to a DIFFERENT code shape
+    // instead of an identical one. Scoped to the bare std::sto* wording —
+    // DuckDB's normal "Could not convert string 'x'" errors carry their
+    // evidence and must keep it.
+    if (/\bsto[dfiu][a-z]*\b:? no conversion/i.test(stderr)) {
+      logger.warn("Sandbox hit a contentless engine conversion error", {
+        runtime: opts.runtime,
+      });
+      return {
+        success: false,
+        error:
+          "The database engine failed with a CONTENTLESS internal conversion error " +
+          "(`stoi: no conversion`) — it names no column, value, or statement, so the failing " +
+          "input cannot be identified from the message. Repeating the same query shape will " +
+          "fail identically. Change the READ STRATEGY instead: read ambiguous/partition-derived " +
+          "columns as VARCHAR and TRY_CAST them explicitly; avoid relying on the engine's " +
+          "implicit typing of hive-partition values (`key=value` path segments); and select only " +
+          "the columns the question needs. If this exact error repeats after those changes, the " +
+          "engine itself cannot read this file layout on this runtime — report that plainly " +
+          "instead of retrying.",
+        execution_ms: executionMs,
+        execDiag,
+      };
+    }
     // A 4xx from the data source is TERMINAL, not a code bug: the object is
     // missing, renamed, or not readable with these credentials. Regenerating code
     // cannot conjure it, so retrying is pure cost — run 5f8b7787 spent 13 minutes

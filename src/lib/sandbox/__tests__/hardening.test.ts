@@ -23,6 +23,7 @@ import {
   sandboxHardeningRunArgs,
   resetDaemonCpuCacheForTests,
 } from "@/lib/sandbox/hardening";
+import { DAEMON_PROBE_RETRY_MS } from "@/lib/sandbox/memory-budget";
 
 const mockedRun = vi.mocked(run);
 
@@ -88,10 +89,19 @@ describe("sandbox CPU limit", () => {
     expect(mockedRun).toHaveBeenCalledTimes(1);
   });
 
-  it("does NOT cache a failure — a later probe retries", async () => {
-    mockedRun.mockRejectedValueOnce(new Error("transient"));
-    expect(await getDaemonCpuCount()).toBeNull();
-    infoReturns(2);
-    expect(await getDaemonCpuCount()).toBe(2);
+  it("caches a FAILURE for the TTL — repeat callers don't re-spawn docker info", async () => {
+    // Same negative-cache contract as memory-budget.ts (handoff 2026-09-15 #2).
+    vi.useFakeTimers();
+    try {
+      mockedRun.mockRejectedValue(new Error("no daemon"));
+      expect(await getDaemonCpuCount()).toBeNull();
+      expect(await getDaemonCpuCount()).toBeNull();
+      expect(mockedRun).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(DAEMON_PROBE_RETRY_MS + 1);
+      infoReturns(2);
+      expect(await getDaemonCpuCount()).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

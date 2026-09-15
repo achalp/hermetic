@@ -3,7 +3,7 @@ import { buildRetryPromptMulti, RETRY_GUIDANCE, buildCodeGenSystemPrompt } from 
 import { pythonErrorSummary } from "@/lib/sandbox/parse-output";
 import { activateSkills, reportSkillActivation } from "@/lib/skills";
 import { userModuleFiles } from "@/lib/skills/user-modules";
-import { getSandboxMemoryLimitGbLabel } from "@/lib/sandbox/memory-budget";
+import { getPromptMemoryGbLabel } from "@/lib/sandbox/memory-budget";
 import { recordFailure } from "@/lib/diagnostics/failure-log";
 import {
   recordRunStart,
@@ -133,10 +133,12 @@ export async function runPipeline(
   });
   let attemptIndex = 1;
 
-  // The container's real memory ceiling (memoized) — shared by the codegen
-  // prompt, the geo guidance, and the review critic so all three reason against
-  // the SAME cap. Hoisted so the retry loop / review redo reuse it.
-  const memLabel = await getSandboxMemoryLimitGbLabel();
+  // The run's real memory ceiling (memoized) — shared by the codegen prompt,
+  // the geo guidance, and the review critic so all three reason against the
+  // SAME cap. Runtime-aware: the wasm tier gets its wasm32 constant instead
+  // of a docker-daemon probe (which returned null off-docker, leaving the
+  // most-constrained tier with NO figure). Hoisted so retries reuse it.
+  const memLabel = await getPromptMemoryGbLabel(getActiveSandboxRuntime());
   // Activate skills ONCE per run (deterministic for a given schema+question, so
   // every retry shares the same prompt prefix). The active set drives all four
   // skill surfaces: codegen guidance (schema-triggered text flows through the
