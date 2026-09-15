@@ -738,3 +738,47 @@ describe("thinking effort", () => {
     _resetEffortSupportCache();
   });
 });
+
+describe("spawn cwd — surviving a self-update", () => {
+  /**
+   * Observed live (2026-09-15): an in-app update replaced /Applications/
+   * Hermetic.app while the sidecar was running from inside it. Node keeps the
+   * process alive with a deleted working directory, so every spawn failed with
+   * "The current working directory was deleted" — run 14825d1f burned all four
+   * attempts in 2.5s while reporting "Code produced no output", because code
+   * generation never happened. The app was unusable until restarted.
+   *
+   * An inherited cwd is the wrong dependency regardless: on the web path it is
+   * the repo, so the CLI can pick up hermetic's own CLAUDE.md as ambient context
+   * for a call that should carry only the prompt we built.
+   */
+  it("spawns from an explicit directory our own updater cannot delete", async () => {
+    mockedSpawn.mockReturnValue(
+      makeChild({
+        stdout: JSON.stringify({
+          type: "result",
+          subtype: "success",
+          result: "ok",
+          usage: { input_tokens: 3, output_tokens: 1 },
+        }),
+      }) as never
+    );
+
+    await claudeCliFetch()(
+      "http://claude-cli.local/v1/responses",
+      requestInit({
+        model: "claude-sonnet-4-6",
+        input: [{ role: "user", content: "hi" }],
+        stream: false,
+      })
+    );
+
+    // The assertion that matters: an explicit cwd was passed at all. Inheriting
+    // is what broke, so "some directory" is the contract, not a specific one.
+    expect(mockedSpawn.mock.calls.length).toBeGreaterThan(0);
+    const [, , opts] = mockedSpawn.mock.calls[0] as unknown as [string, string[], { cwd?: string }];
+    expect(typeof opts?.cwd).toBe("string");
+    expect(opts!.cwd!.length).toBeGreaterThan(0);
+    expect(opts!.cwd).not.toContain("Hermetic.app");
+  });
+});
