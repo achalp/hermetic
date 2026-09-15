@@ -25,6 +25,18 @@ Hermetic is an open-source, local-first AI data analyst: ask questions of your d
 
 ![Saved visualizations with load, update, and delete actions](docs/saved-vizs.png)
 
+## Get Hermetic
+
+Three ways in, one pipeline underneath — pick the door that fits:
+
+| I want…                            | Get                                                                                                                                                                                                                                   |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **The desktop app**                | [Latest release](https://github.com/achalp/hermetic/releases/latest): macOS `.dmg` (Apple Silicon + Intel, Developer-ID signed & notarized), Windows installer, Linux AppImage/deb/rpm. Auto-updates via signature-verified releases. |
+| **Hermetic inside Claude Desktop** | `hermetic.mcpb` from the same release — one file, installs by double-click (Settings → Extensions), turns Claude into a client of your local Hermetic.                                                                                |
+| **The full checkout**              | `git clone` + [Quick Start](#quick-start) below — the web app, CLI, MCP server, and Docker execution tier with everything inspectable.                                                                                                |
+
+Every artifact is [build-provenance attested](ops/RELEASE.md) (`gh attestation verify <file> --repo achalp/hermetic`). Windows binaries are updater-signed but not yet OS code-signed — SmartScreen will warn on first open.
+
 ## Philosophy
 
 Hermetic explores the idea that LLMs can generate correct data analysis code **without seeing the data itself**.
