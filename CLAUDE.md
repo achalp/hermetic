@@ -56,6 +56,14 @@ Findings below were TRACED, not assumed — do not re-litigate without new evide
   harvest, sandboxMemoryGb label). HERMETIC_REPLAY_DEBUG=1 dumps full
   request bytes per replay lookup for CI-vs-local diffing.
 
+## Session handoff
+
+- `specs/session-handoff-2026-09-15.md` — in-flight branches and merge order,
+  open-but-unfiled findings (the wasm `stoi` blocker, the doubled `docker info`
+  probe, CI never building the wasm bundle, the missing failure hint), and what
+  is true of the dev machine rather than the repo. Read it before assuming a
+  half-finished change is abandoned.
+
 ## Provisional decisions (NOT validated design — do not cite as settled)
 
 - Dashboard-integrity thresholds (`lib/compose/series-scale.ts`,
@@ -82,6 +90,28 @@ Findings below were TRACED, not assumed — do not re-litigate without new evide
 - `ensureChecksDeclared` redo (~10-40s when it fires): grep
   `data/runs/*/journal.jsonl` for `checks_redo` rate BEFORE optimizing — it is
   the credibility-floor quality gate.
+
+## Verification habits (each cost real time to learn)
+
+- **Never pipe a command through `tail`/`head` when its exit status matters.** A
+  pipeline reports the LAST command's status: `scripts/release.sh … | tail -3`
+  made a FAILED release look successful, and a truncated pre-push log hid which
+  tests failed. Redirect to a file and echo `$?`.
+- **One test suite at a time.** Concurrent background `vitest` runs starve each
+  other's workers and produce 5-7 failures in unrelated timing-sensitive files
+  (process spawning, the DuckDB-WASM bridge, React forms) that all pass in
+  isolation — and invite wrong diagnoses. If a suite looks flaky, run the control:
+  same conditions, main vs branch.
+- **Set `CARGO_TARGET_DIR` outside the repo** before running cargo in a container
+  mounted on a macOS checkout; otherwise Linux artifacts overwrite native ones and
+  `rust/egress-core/target/debug/egress-fetch` starts failing `spawn ENOEXEC`.
+- **A test that asserts nothing passes.** Verify a new regression test FAILS
+  without its fix (sabotage the fix, watch it go red) before trusting it.
+- **`git checkout <file>` discards uncommitted work** — commit or stash before
+  reverting an experiment.
+- **A failing golden is DATA, not just a re-record chore.** It is the only
+  held-out corpus available for output-quality checks; a check firing on 1 of 3
+  golden journeys is a firing-rate signal worth acting on.
 
 ## Working conventions observed here
 
