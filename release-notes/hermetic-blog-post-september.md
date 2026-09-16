@@ -31,7 +31,9 @@ The security rule does not change. Analysis code runs inside a locked worker. It
 
 ## Hermetic works with the desktop agent of your choice
 
-Hermetic is now a MCP server. One file — `hermetic.mcpb` — installs into Claude Desktop with a double click, and any agent that speaks the Model Context Protocol can use Hermetic as its analysis room. Your agent asks the questions. Your data stays home. The dashboard outlives the chat.
+Hermetic is now an MCP server. One file — `hermetic.mcpb` — installs into Claude Desktop with a double click, and any agent that speaks the Model Context Protocol can use Hermetic as its analysis room. Your agent asks the questions. Your data stays home. The dashboard outlives the chat.
+
+One honest limit: the MCP server runs analysis in the Docker sandbox. The browser-based runtime from the last section belongs to the desktop app, because that sandbox is literally a browser's. A machine without Docker gets a clear refusal that says so, instead of a quiet fallback to something weaker.
 
 This also matters for reach. Claude Desktop users could never run Hermetic before, because built-in analysis means uploading your data. With MCP, the desktop agent becomes a Hermetic front end, your subscription login is the only credential, and no API key is involved.
 
