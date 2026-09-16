@@ -8,15 +8,17 @@ Hermetic's September update is out. Hermetic is an open-source, local-first AI d
 
 One sentence version: it's an app now.
 
-Three themes this month.
+Four things shipped.
 
-You can just download it. Desktop apps for macOS, Windows, and Linux, with signature-verified auto-update — plus a one-file extension that installs into Claude Desktop and turns Claude into a client of your local Hermetic. Fifteen stable releases in fifteen days, every artifact build-provenance attested. macOS builds are notarized; the README is honest about Windows not being code-signed yet.
+**Catalogs.** Point Hermetic at a data catalog — Data Package, Croissant, a file list, or STAC — and the whole thing becomes one source with many tables. One URL connects the AHI housing hub. One URL connects Overture Maps' planetary STAC catalog, and Hermetic reads only the byte ranges each question needs.
 
-Point it at a catalog. Hand Hermetic a dataset manifest or a STAC catalog URL — like Overture Maps' planetary dataset — and it becomes one source with many tables. A small model call picks the relevant ones per question, joins work across them, and on the built-in engine nothing is downloaded whole.
+**Desktop installers.** macOS, Windows, and Linux, with signature-verified auto-update. macOS builds are signed and notarized. Windows is still unsigned — I wrote up why, and it involves my patience ending somewhere deep inside the Azure portal.
 
-My dev machine was lying to me. The first real installs failed in ways my machine couldn't reproduce: runtime assets that only existed locally because old test runs had cached them, a version label that had been wrong for six releases, and no log file to debug any of it with. Every fix shipped with an assert that makes the gap impossible to re-ship. Your first ten users are an audit — build so their findings become permanent.
+**A built-in analysis runtime.** The desktop app carries Python and DuckDB compiled to WebAssembly, running in a locked sandbox. Install one app and analyze. No Docker, no setup, and the data boundary holds.
 
-The full write-up also covers the update-signing key I had to rotate after my own backup failed its first real test, and why the release runbook now demands proof you can restore a key before anything depends on it.
+**An MCP server.** One file installs into Claude Desktop, and any MCP agent can use Hermetic as its analysis room. Your agent asks, your data stays home, and the dashboard outlives the chat.
+
+The full article also covers what I trust an agent with (exactly), a privacy claim I had to give up because it was incoherent, and the update-signing key I rotated after my own backup failed its first restore test.
 
 Full article: [link]
 Open source: github.com/achalp/hermetic
