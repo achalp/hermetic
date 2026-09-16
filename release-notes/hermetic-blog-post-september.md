@@ -1,6 +1,6 @@
 # Hermetic in September: catalogs, a desktop app, and a server for your agent
 
-Hermetic is an open-source, local-first AI data analyst. I build it in public. One rule has never changed: the model writes the analysis code, but it never sees your data.
+Hermetic is an open-source, local-first AI data analyst. I build it in public. It follows one principle: the model writes the analysis code, but it never sees your data.
 
 My last post was in July. Two months of work has landed since then. Here is what shipped.
 
@@ -12,10 +12,8 @@ You paste one URL. Hermetic turns the whole catalog into one source with many ta
 
 Two real examples:
 
-- **The AHI hub.** AHI publishes its housing datasets behind one manifest file on Azure blob storage. Before this month, you had to find each Parquet file's URL and connect them one at a time. Now one URL connects the hub, with every dataset showing up as a table, and the data dictionary comes along with it.
-- **Overture Maps STAC.** Overture publishes a planetary map dataset — buildings, roads, place boundaries for the whole Earth — as a STAC catalog. It is hundreds of gigabytes. Hermetic connects to it with one URL and reads only the byte ranges a question needs. Nothing is downloaded whole.
-
-Agents get the same feature. Every catalog type that works in the app works through the MCP tools too.
+- **[The AHI hub](https://ahihubpublic.blob.core.windows.net/data/manifest.json):** AHI publishes its housing datasets behind one manifest file on Azure blob storage. Before this month, you had to find each Parquet file's URL and connect them one at a time. Now one URL connects the hub, with every dataset showing up as a table, and the data dictionary comes along with it.
+- **[Overture Maps STAC](https://stac.overturemaps.org/catalog.json):** Overture publishes a planetary map dataset - buildings, roads, place boundaries for the whole Earth - as a STAC catalog. It is hundreds of gigabytes. Hermetic connects to it with one URL and reads only the byte ranges a question needs. Nothing is downloaded whole.
 
 ## Desktop installers, signed
 
@@ -23,9 +21,7 @@ Hermetic is now a desktop app you download and install. It runs on Linux, macOS 
 
 The update path is locked down. Every update is checked against a signing key that is built into the app. A tampered or unsigned update fails before a single byte is installed. The macOS builds are also signed with a Developer ID and notarized by Apple. Apple checks every binary inside the app bundle, and Hermetic carries a Node runtime, a Rust binary, and native addons — it took three release candidates to pass. That work is done, and Gatekeeper now opens the app without complaint.
 
-One honest note. Mid-month I tested restoring my update-signing key from my own backup. The saved password failed. I rotated to a new key, and the release checklist now has a new rule: prove you can restore the key from backup before any release depends on it. The rotation was free this time because nobody had installed the app yet. Next time it would be expensive.
-
-Windows is the exception: those installers are still unsigned, and I want to say why out loud. Microsoft's path for a small developer is Azure Trusted Signing, and that path runs through the Azure portal. The portal is a maze. Subscriptions, resource groups, identity verification, role assignments — each one a separate screen with its own vocabulary, none of it pointed at the simple goal of "sign my app." I built a sandboxed code-execution engine this year. I notarized a macOS app. The Azure console is where my patience ran out. So Windows users see a scary SmartScreen warning — not because the app is dangerous, but because the signing process costs more effort than the feature it protects. If signing is supposed to keep users safe, it should be the easiest step in shipping, and today it is the hardest one. That is backwards.
+**Windows is the exception**: those installers are still unsigned, and I want to say why out loud. Microsoft's path for a small developer is Azure Trusted Signing, and that path runs through the Azure portal. The portal is a maze. Subscriptions, resource groups, identity verification, role assignments — each one a separate screen with its own vocabulary, none of it pointed at the simple goal of "sign my app." I built a sandboxed code-execution engine this year. I notarized a macOS app and it was easy. The Azure console is where my patience ran out. So Windows users see a scary SmartScreen warning — not because the app is dangerous, but because the signing process costs more effort than the feature it protects. If signing is supposed to keep users safe, it should be the easiest step in shipping, and today it is the hardest one. That is backwards.
 
 ## The desktop app runs analysis with no Docker
 
@@ -33,11 +29,9 @@ This is the biggest change inside the app. The desktop build carries a WebAssemb
 
 The security rule does not change. Analysis code runs inside a locked worker. Its only network path is a local endpoint that serves approved byte ranges from the one source you connected. The worker can ask for offsets; it can never pick a new destination. That is how a laptop handles a planetary dataset: in one probe, DuckDB answered a question over a 525 MB remote file after reading 0.17% of it.
 
-Shipping this taught me a hard lesson. The first installed apps were broken in ways my own machine could not show me, because my machine had files the package did not: cached Python wheels, a hand-built DuckDB bundle, even a version string that said "v1.0" for six releases. Each fix shipped with a build check that fails loudly if the gap ever comes back, and the packaged app now writes a real log file. One more bug from this family had burned whole analysis runs: planetary geo queries died with a bare `stoi: no conversion` error. It traced to a version mismatch — the browser engine was running a newer, prerelease DuckDB than the Docker tier. Both tiers now run the same stable DuckDB, and that failure is gone.
-
 ## Hermetic works with the desktop agent of your choice
 
-Hermetic is an MCP server. One file — `hermetic.mcpb` — installs into Claude Desktop with a double click, and any agent that speaks the Model Context Protocol can use Hermetic as its analysis room. Your agent asks the questions. Your data stays home. The dashboard outlives the chat.
+Hermetic is now a MCP server. One file — `hermetic.mcpb` — installs into Claude Desktop with a double click, and any agent that speaks the Model Context Protocol can use Hermetic as its analysis room. Your agent asks the questions. Your data stays home. The dashboard outlives the chat.
 
 This also matters for reach. Claude Desktop users could never run Hermetic before, because built-in analysis means uploading your data. With MCP, the desktop agent becomes a Hermetic front end, your subscription login is the only credential, and no API key is involved.
 
@@ -55,7 +49,11 @@ Three things survive that objection.
 
 ## What the agent gets
 
-Eight tools. The flagship is `analyze`: the full pipeline — code generation, review, sandboxed execution, dashboard composition — as a single call that returns a summary, the numbers, the cost, and a link. Around it sit the primitives: `connect_source` for every source the app supports, `get_schema` for rich statistics so the agent never samples rows to understand a dataset, `run_sql` for read-only warehouse queries, `run_analysis` for the agent's own Python in the sandbox, `verify_narrative` to check every number in the agent's prose against computed values, and `persist_dashboard` to make an agent-authored dashboard permanent.
+The flagship is `analyze`: the full pipeline — code generation, review, sandboxed execution, dashboard composition — as a single call that returns a summary, the numbers, the cost, and a link. When a run may take a while, `analyze_start` does the same work as a background job, with companion tools to check status, fetch the result, or cancel.
+
+Around the flagship sit the primitives: `list_sources` and `connect_source` for every source the app supports, `get_schema` for rich statistics so the agent never samples rows to understand a dataset, `run_sql` for read-only warehouse queries, `run_analysis` for the agent's own Python in the sandbox, `verify_narrative` to check every number in the agent's prose against computed values, and `persist_dashboard` to make an agent-authored dashboard permanent.
+
+A newer group works on finished dashboards. `get_dashboard_plan` reads a dashboard's structure, `edit_dashboard` changes it through a small, governed set of moves — no model involved in the recompile — `export_dashboard` writes it out, and `audit_analysis` runs an adversarial audit over a completed analysis's derived numbers and claims.
 
 The link deserves a sentence. The MCP process embeds a small viewer with the same renderer and themes as the web app, served only on your own machine. The link your agent hands you works with nothing else running.
 
@@ -67,13 +65,11 @@ The same month closed a hole I had documented as a known gap. Analysis code for 
 
 ## A claim I had to give up
 
-The first version of the MCP server hid things from the agent in the name of privacy — chart series trimmed to samples, identifier values blanked in schemas. It felt principled. It was incoherent. The agent writes the queries and receives the results; it can always request rows through its two sanctioned tools. Hiding them elsewhere protected nobody. It just made the agent work harder while I pretended the return shapes were a security control.
+The first version of the MCP server hid things from the agent in the name of privacy — chart series trimmed to samples, identifier values blanked in schemas. It felt principled but it was incoherent. The agent writes the queries and receives the results; it can always request rows through its two sanctioned tools. Hiding them elsewhere protected nobody. It just made the agent work harder while I pretended the return shapes were a security control.
 
 The claim is now precise. The data plane stays local: files, sandbox, warehouse connections, dashboards, viewer. Everything a tool returns crosses to the host you chose. If your host is a cloud assistant, results reach that provider — a property of your host, and one Hermetic states plainly instead of papering over. What Hermetic owes you: every row-bearing response is capped, every call lands in a sanitized audit log, and credentials never cross on any path. If you want nothing to leave the machine, run a local-model MCP client. The tools behave identically.
 
-## What comes next
-
-The agent queue is owed: the component catalog as a resource so agents can author dashboards natively, schedule tools, an investigate-mode tool. Windows signing, despite the portal. And the telemetry question stands: if agents treat Hermetic as a database connector, that thesis dies; if dashboards persist and get revisited, the analysis room is real.
+## How can you help
 
 If you install the app or wire it into your agent and it does something useful — or something embarrassing — I want to hear about it. The embarrassing reports have been the valuable ones.
 
