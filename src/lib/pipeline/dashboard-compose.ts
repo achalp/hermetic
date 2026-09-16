@@ -470,7 +470,13 @@ export async function composeAndStreamDashboard(args: {
       const assembledForScale = assembleSpecFromPatches(composedPatches as never);
       if (assembledForScale?.elements) {
         const els = assembledForScale.elements as Record<string, unknown>;
-        const { rewritten, added } = lintSeriesScale(els);
+        // State too: a DataController-fed chart binds {"$state": "/computed/x"},
+        // and without the state the lint cannot see its rows — which is how two
+        // charts at 17.3x and 11.2x shipped unflagged while it reported nothing.
+        const { rewritten, added } = lintSeriesScale(
+          els,
+          (assembledForScale as { state?: Record<string, unknown> }).state
+        );
         for (const [id, element] of Object.entries(added)) {
           const patch = { op: "add", path: `/elements/${id}`, value: element };
           composedPatches.push(patch as PatchLike);

@@ -2,6 +2,15 @@
 
 import { ReactNode } from "react";
 
+/**
+ * The rail is `position: fixed` against the right edge at a higher z-index than
+ * the page chrome, so it paints OVER anything else anchored bottom-right. Other
+ * fixed chrome must offset by the collapsed width rather than hard-code 48 —
+ * see CostFooter.
+ */
+export const RAIL_COLLAPSED_WIDTH = 48;
+const RAIL_EXPANDED_WIDTH = 380;
+
 interface DataRailProps {
   visible: boolean;
   expanded: boolean;
@@ -23,7 +32,7 @@ export function DataRail({
 }: DataRailProps) {
   if (!visible) return null;
 
-  const width = fullscreen ? "100vw" : expanded ? 380 : 48;
+  const width = fullscreen ? "100vw" : expanded ? RAIL_EXPANDED_WIDTH : RAIL_COLLAPSED_WIDTH;
   const zIndex = fullscreen ? 250 : 180;
 
   return (
