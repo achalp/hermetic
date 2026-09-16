@@ -1,17 +1,13 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { BASEMAP_STYLE_URL, BASEMAP_TILE_URLS } from "@/lib/basemap-constants";
+import { BASEMAP_STYLE_URLS } from "@/lib/basemap-constants";
 import { logger } from "@/lib/logger";
 
 // CSP hosts derived from the SAME constants self-hosters override (leaf
 // module: Edge-safe, no envConfig evaluation) — a
 // re-pointed basemap must not be silently blocked by a stale literal here.
 const BASEMAP_HOSTS = Array.from(
-  new Set(
-    [BASEMAP_STYLE_URL, BASEMAP_TILE_URLS.dark, BASEMAP_TILE_URLS.light].map(
-      (u) => new URL(u).origin
-    )
-  )
+  new Set(Object.values(BASEMAP_STYLE_URLS).map((u) => new URL(u).origin))
 );
 const BASEMAP_WILDCARD = BASEMAP_HOSTS.map((o) => o.replace("://", "://*.")).join(" ");
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { BASEMAP_STYLE_URL, BASEMAP_TILE_URLS } from "@/lib/basemap-constants";
+import { BASEMAP_STYLE_URLS } from "@/lib/basemap-constants";
 
 /**
  * The desktop app's CSP must permit every host the basemap actually fetches from
@@ -38,16 +38,28 @@ describe("desktop CSP admits the basemap", () => {
     expect(CSP).toContain("default-src");
   });
 
-  it("allows the STYLE url on connect-src (fetched as JSON, not an image)", () => {
-    const host = new URL(BASEMAP_STYLE_URL).hostname;
-    expect(admits(directive("connect-src"), host)).toBe(true);
+  it("allows every STYLE host on connect-src — MapLibre fetches styles, tiles, glyphs and sprites", () => {
+    for (const url of Object.values(BASEMAP_STYLE_URLS)) {
+      const host = new URL(url).hostname;
+      expect(admits(directive("connect-src"), host), `connect-src must admit ${host}`).toBe(true);
+    }
   });
 
-  it("allows every TILE host on img-src — raster tiles load as images", () => {
-    for (const url of Object.values(BASEMAP_TILE_URLS)) {
-      // Tile templates carry {z}/{x}/{y}; only the origin matters here.
-      const host = new URL(url.replace(/\{[zxy]\}/g, "0")).hostname;
+  it("allows every STYLE host on img-src — sprite/raster sub-resources may load as images", () => {
+    for (const url of Object.values(BASEMAP_STYLE_URLS)) {
+      const host = new URL(url).hostname;
       expect(admits(directive("img-src"), host), `img-src must admit ${host}`).toBe(true);
+    }
+  });
+
+  it("basemap URLs stay keyless — a token in the URL is the CARTO regression returning", () => {
+    // CARTO began watermarking anonymous raster tiles ("API KEY REQUIRED",
+    // issue #253); the OpenFreeMap replacement is keyless BY DESIGN. A key or
+    // token appearing in these URLs means the provider posture changed again
+    // and needs a deliberate decision, not a silent pass-through.
+    for (const url of Object.values(BASEMAP_STYLE_URLS)) {
+      expect(url).not.toMatch(/token|apikey|api_key|key=/i);
+      expect(url).toContain("openfreemap.org");
     }
   });
 

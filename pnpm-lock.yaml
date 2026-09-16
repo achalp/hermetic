@@ -50,6 +50,9 @@ importers:
       '@deck.gl/layers':
         specifier: ^9.2.9
         version: 9.3.4(@deck.gl/core@9.3.4)(@loaders.gl/core@4.4.3)(@luma.gl/core@9.3.4)(@luma.gl/engine@9.3.4(@luma.gl/core@9.3.4)(@luma.gl/shadertools@9.3.4(@luma.gl/core@9.3.4)))
+      '@deck.gl/mapbox':
+        specifier: 9.3.4
+        version: 9.3.4(@deck.gl/core@9.3.4)(@luma.gl/core@9.3.4)(@math.gl/web-mercator@4.1.0)
       '@deck.gl/react':
         specifier: ^9.2.9
         version: 9.3.4(@deck.gl/core@9.3.4)(@deck.gl/widgets@9.3.4(@deck.gl/core@9.3.4)(@luma.gl/core@9.3.4))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -940,6 +943,13 @@ packages:
       '@loaders.gl/core': ^4.4.1
       '@luma.gl/core': ~9.3.3
       '@luma.gl/engine': ~9.3.3
+
+  '@deck.gl/mapbox@9.3.4':
+    resolution: {integrity: sha512-chAEyVc8qD5I/tvy+VO2b/W01LP19LJTQLamR0gVCMkCm58hnKh83nQtj/XGqrHk61LOpnN/ASfksXa7XNc0hA==}
+    peerDependencies:
+      '@deck.gl/core': ~9.3.0
+      '@luma.gl/core': ~9.3.3
+      '@math.gl/web-mercator': ^4.1.0
 
   '@deck.gl/mesh-layers@9.3.4':
     resolution: {integrity: sha512-07nBD9hLphVjZ4bHN9FwyUOdR1+Zvlcu0Wxd5dnxQIer2CySSaenPJgXXUg629tKUxvmcLAgs4V2klef+Z8YFg==}
@@ -2257,6 +2267,7 @@ packages:
   '@plotly/mapbox-gl@1.13.4':
     resolution: {integrity: sha512-sR3/Pe5LqT/fhYgp4rT4aSFf1rTsxMbGiH6Hojc7PH36ny5Bn17iVFUjpzycafETURuFbLZUfjODO8LvSI+5zQ==}
     engines: {node: '>=6.4.0'}
+    deprecated: This package is deprecated as of August 2026. plotly.js v4 uses MapLibre for map traces — see https://github.com/maplibre/maplibre-gl-js.
 
   '@plotly/point-cluster@3.1.9':
     resolution: {integrity: sha512-MwaI6g9scKf68Orpr1pHZ597pYx9uP8UEFXLPbsCmuw3a84obwz6pnMXGc90VhgDNeNiLEdlmuK7CPo+5PIxXw==}
@@ -8275,6 +8286,12 @@ snapshots:
       earcut: 2.2.4
     transitivePeerDependencies:
       - '@75lb/nature'
+
+  '@deck.gl/mapbox@9.3.4(@deck.gl/core@9.3.4)(@luma.gl/core@9.3.4)(@math.gl/web-mercator@4.1.0)':
+    dependencies:
+      '@deck.gl/core': 9.3.4
+      '@luma.gl/core': 9.3.4
+      '@math.gl/web-mercator': 4.1.0
 
   '@deck.gl/mesh-layers@9.3.4(@deck.gl/core@9.3.4)(@loaders.gl/core@4.4.3)(@luma.gl/core@9.3.4)(@luma.gl/engine@9.3.4(@luma.gl/core@9.3.4)(@luma.gl/shadertools@9.3.4(@luma.gl/core@9.3.4)))(@luma.gl/gltf@9.3.4(@luma.gl/core@9.3.4)(@luma.gl/engine@9.3.4(@luma.gl/core@9.3.4)(@luma.gl/shadertools@9.3.4(@luma.gl/core@9.3.4)))(@luma.gl/shadertools@9.3.4(@luma.gl/core@9.3.4)))(@luma.gl/shadertools@9.3.4(@luma.gl/core@9.3.4))':
     dependencies:
