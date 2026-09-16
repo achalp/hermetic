@@ -191,3 +191,96 @@ describe("humanizeSeriesKey", () => {
     expect(humanizeSeriesKey("rental_vacancy_rate")).toBe("Rental vacancy rate");
   });
 });
+
+describe("charts fed by a DataController ($state bindings)", () => {
+  /**
+   * Observed on a live dashboard AFTER this lint shipped: two LineCharts bound
+   * `{"$state": "/computed/trends"}` and kept exactly the defect the lint exists
+   * to prevent — composite 66-76 against vacancy 3.0-5.4 (17.3x), and
+   * homelessness 230-721 against unsheltered share 28-58 (11.2x). Both smaller
+   * series were flattened against the axis while their legend entries implied
+   * two readable lines.
+   *
+   * The lint required `Array.isArray(props.data)` and skipped everything else,
+   * so every DataController-fed chart was invisible to it. Worse than a miss:
+   * the silence was reported as a clean result.
+   */
+  const trends = [
+    { year: 2010, composite_score: 66.1, vacancy_rate_pct: 5.42 },
+    { year: 2015, composite_score: 73.0, vacancy_rate_pct: 4.22 },
+    { year: 2020, composite_score: 74.8, vacancy_rate_pct: 3.4 },
+    { year: 2024, composite_score: 76.2, vacancy_rate_pct: 2.95 },
+  ];
+  const state = { computed: { trends } };
+
+  function chart() {
+    return {
+      lc1: {
+        type: "LineChart",
+        props: {
+          title: "Distress & vacancy",
+          data: { $state: "/computed/trends" },
+          x_key: "year",
+          y_keys: ["composite_score", "vacancy_rate_pct"],
+          label_map: { composite_score: "Composite", vacancy_rate_pct: "Vacancy" },
+        },
+        children: [],
+      },
+    };
+  }
+
+  it("follows the pointer and flags what literal-rows-only could not see", () => {
+    const els = chart();
+    const { rewritten } = lintSeriesScale(els, state);
+    expect(rewritten).toHaveLength(1);
+    expect(rewritten[0]!.ratio).toBeGreaterThan(10);
+  });
+
+  it("KEEPS the binding after rewriting — inlining rows would break the filters", () => {
+    // A DataController-fed chart re-reads /computed/trends as filters change.
+    // Replacing the binding with the rows it happened to hold at compose time
+    // would freeze the chart into a snapshot.
+    const els = chart();
+    lintSeriesScale(els, state);
+    const el = els.lc1 as unknown as { type: string; props: Record<string, unknown> };
+    expect(el.type).toBe("DualAxisChart");
+    expect(el.props.data).toEqual({ $state: "/computed/trends" });
+  });
+
+  it("does nothing when the state is absent — measure, never guess", () => {
+    const els = chart();
+    expect(lintSeriesScale(els, undefined).rewritten).toEqual([]);
+    expect((els.lc1 as { type: string }).type).toBe("LineChart");
+  });
+
+  it("tolerates a pointer that resolves to nothing, or to a non-array", () => {
+    const els = chart();
+    expect(() => lintSeriesScale(els, { computed: {} })).not.toThrow();
+    expect(() => lintSeriesScale(chart(), { computed: { trends: "no" } })).not.toThrow();
+    expect(lintSeriesScale(chart(), { computed: { trends: 42 } }).rewritten).toEqual([]);
+  });
+
+  it("still leaves a DataController-fed chart alone when its series agree", () => {
+    const els = {
+      lc: {
+        type: "LineChart",
+        props: {
+          data: { $state: "/computed/pair" },
+          x_key: "year",
+          y_keys: ["a", "b"],
+        },
+        children: [],
+      },
+    };
+    const ok = {
+      computed: {
+        pair: [
+          { year: 1, a: 10, b: 12 },
+          { year: 2, a: 11, b: 9 },
+        ],
+      },
+    };
+    expect(lintSeriesScale(els, ok).rewritten).toEqual([]);
+    expect(els.lc.type).toBe("LineChart");
+  });
+});

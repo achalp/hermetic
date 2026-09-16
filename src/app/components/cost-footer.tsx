@@ -1,5 +1,6 @@
 "use client";
 
+import { RAIL_COLLAPSED_WIDTH } from "@/app/components/data-rail";
 import type { CostInfo } from "@/lib/contracts/stream-state";
 
 /**
@@ -31,8 +32,15 @@ export function CostFooter({
 
   return (
     <div
-      className="fixed bottom-0 right-0 flex items-center gap-3 border-l border-t border-border-default bg-surface-1 px-3 py-1 text-xs text-t-tertiary"
-      style={{ zIndex: 120, borderTopLeftRadius: "var(--radius-badge)" }}
+      className="fixed bottom-0 flex items-center gap-3 border-l border-t border-border-default bg-surface-1 px-3 py-1 text-xs text-t-tertiary"
+      style={{
+        // The DataRail is fixed to the right edge at a higher z-index, so a
+        // footer flush at right:0 is painted over — the tail of "Cost & usage"
+        // disappears under the collapsed icon strip. Sit just clear of it.
+        right: RAIL_COLLAPSED_WIDTH,
+        zIndex: 120,
+        borderTopLeftRadius: "var(--radius-badge)",
+      }}
       role="status"
       aria-live="polite"
     >

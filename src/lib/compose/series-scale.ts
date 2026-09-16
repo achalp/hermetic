@@ -145,7 +145,40 @@ const SINGLE_AXIS_TYPES = new Set(["LineChart", "AreaChart", "BarChart"]);
  * The split keeps the ORIGINAL element id and turns it into the LayoutColumn that
  * holds the new charts, so no parent needs rewiring and the tree stays reachable.
  */
-export function lintSeriesScale(elements: Record<string, unknown>): SeriesScaleLint {
+/**
+ * Rows for a chart, following a `$state` pointer when the chart is fed by a
+ * DataController rather than literal data.
+ *
+ * The first version of this lint required `Array.isArray(props.data)` and
+ * skipped everything else, so every DataController-fed chart was invisible to
+ * it — a first-class pattern here, not an edge case. Observed: a dashboard whose
+ * two LineCharts bound `{"$state": "/computed/trends"}` kept exactly the defect
+ * this lint exists to prevent (17.3x and 11.2x series on shared axes, the
+ * smaller one flattened against the axis) while the lint reported nothing. Worse
+ * than a miss: the silence read as a clean result.
+ *
+ * The rows are already in the assembled spec's `state`; only the pointer needed
+ * following.
+ */
+function resolveRows(data: unknown, state: Record<string, unknown> | undefined): unknown[] | null {
+  if (Array.isArray(data)) return data;
+  if (!data || typeof data !== "object") return null;
+  const ref = (data as { $state?: unknown }).$state;
+  if (typeof ref !== "string" || !state) return null;
+  // "/computed/trends" -> state.computed.trends
+  let cur: unknown = state;
+  for (const seg of ref.split("/").filter(Boolean)) {
+    if (!cur || typeof cur !== "object") return null;
+    cur = (cur as Record<string, unknown>)[seg];
+  }
+  return Array.isArray(cur) ? cur : null;
+}
+
+export function lintSeriesScale(
+  elements: Record<string, unknown>,
+  /** The spec's `state`, so charts fed by a DataController can be measured too. */
+  state?: Record<string, unknown>
+): SeriesScaleLint {
   const rewritten: ChartRewrite[] = [];
   const added: Record<string, unknown> = {};
   for (const [elementId, raw] of Object.entries(elements ?? {})) {
@@ -154,9 +187,10 @@ export function lintSeriesScale(elements: Record<string, unknown>): SeriesScaleL
     if (typeof el.type !== "string" || !SINGLE_AXIS_TYPES.has(el.type)) continue;
     const props = el.props;
     if (!props || typeof props !== "object") continue;
-    const rows = props.data;
     const yKeys = props.y_keys;
-    if (!Array.isArray(rows) || !Array.isArray(yKeys) || yKeys.length < 2) continue;
+    if (!Array.isArray(yKeys) || yKeys.length < 2) continue;
+    const rows = resolveRows(props.data, state);
+    if (!rows) continue;
 
     const originalType = el.type;
     const keys = yKeys.filter((k): k is string => typeof k === "string");
@@ -174,7 +208,9 @@ export function lintSeriesScale(elements: Record<string, unknown>): SeriesScaleL
       el.type = "DualAxisChart";
       el.props = {
         title: props.title ?? null,
-        data: rows,
+        // The original binding, NOT the resolved rows: inlining them would
+        // freeze a DataController-fed chart into a snapshot and break its filters.
+        data: props.data,
         x_key: props.x_key,
         left_series: left,
         right_series: right,
