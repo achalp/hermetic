@@ -22,10 +22,31 @@ vi.mock("fs/promises", () => ({
 
 import { appendCostRow, listCostRows } from "@/lib/cost/storage";
 
+/**
+ * Dates RELATIVE to now, never absolute.
+ *
+ * These were hard-coded as 2026-06-18/19 and passed for 90 days, then began
+ * failing at midnight UTC on 2026-09-16 — the moment the older file crossed
+ * COST_RETENTION_DAYS and `pruneOldCostFiles` started deleting it on write. The
+ * failure looked like a broken concatenation ("expected [new, old], got [new]")
+ * and blocked every push in the repo, in a file nobody had touched since the
+ * hardening commit.
+ *
+ * A test about day-file behaviour must not depend on the calendar: anchor it to
+ * today so it stays inside the retention window forever.
+ */
+function daysAgo(n: number): { date: string; timestamp: string } {
+  const d = new Date(Date.now() - n * 24 * 60 * 60 * 1000);
+  const date = d.toISOString().slice(0, 10);
+  return { date, timestamp: `${date}T09:00:00.000Z` };
+}
+const TODAY = daysAgo(0);
+const YESTERDAY = daysAgo(1);
+
 function row(overrides: Partial<Parameters<typeof appendCostRow>[0]> = {}) {
   return {
-    timestamp: "2026-06-19T10:00:00.000Z",
-    date: "2026-06-19",
+    timestamp: TODAY.timestamp,
+    date: TODAY.date,
     dataset: "sales.csv",
     question: "What drives revenue?",
     mode: "investigate",
@@ -59,7 +80,7 @@ describe("cost storage round-trip", () => {
     const rows = await listCostRows();
     expect(rows.map((r) => r.question).sort()).toEqual(["q1", "q2"]);
     // One day file, not two.
-    expect([...files.keys()].filter((p) => p.endsWith("2026-06-19.csv"))).toHaveLength(1);
+    expect([...files.keys()].filter((p) => p.endsWith(`${TODAY.date}.csv`))).toHaveLength(1);
   });
 
   it("quotes a question containing commas and quotes", async () => {
@@ -70,11 +91,9 @@ describe("cost storage round-trip", () => {
 
   it("concatenates rows across day files, newest analysis first", async () => {
     await appendCostRow(
-      row({ date: "2026-06-18", timestamp: "2026-06-18T09:00:00.000Z", question: "old" })
+      row({ date: YESTERDAY.date, timestamp: YESTERDAY.timestamp, question: "old" })
     );
-    await appendCostRow(
-      row({ date: "2026-06-19", timestamp: "2026-06-19T09:00:00.000Z", question: "new" })
-    );
+    await appendCostRow(row({ date: TODAY.date, timestamp: TODAY.timestamp, question: "new" }));
     const rows = await listCostRows();
     expect(rows.map((r) => r.question)).toEqual(["new", "old"]);
   });
