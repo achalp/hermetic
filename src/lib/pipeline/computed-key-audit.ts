@@ -99,3 +99,66 @@ export function auditComputedKeys(patches: PatchLike[]): ComputedKeyAudit {
   const unproduced = [...referenced].filter((k) => !produced.has(k));
   return { referenced: [...referenced], produced: [...produced], unproduced };
 }
+
+/**
+ * The `/datasets` sibling of {@link auditComputedKeys}: does every
+ * `{"$state": "/datasets/<key>"}` a component reads name a dataset that will
+ * exist at runtime?
+ *
+ * Producers are deterministic here: the pipeline always injects
+ * `/state/datasets` with `main` + every chart_data key (`runtimeKeys`), and a
+ * spec may seed additional datasets itself. Anything else renders empty — the
+ * run-572ff50a failure: a generative spec bound MapView.markers and
+ * DataTable.rows to `/datasets/isolated_markers` while the run produced
+ * `map_top_isolated_buildings` / `seattle_top10_isolated_buildings`, so the
+ * map and table shipped blank with no error anywhere.
+ */
+export function auditDatasetKeys(
+  patches: PatchLike[],
+  runtimeKeys: Iterable<string>
+): ComputedKeyAudit {
+  const produced = new Set<string>(runtimeKeys);
+  const referenced = new Set<string>();
+
+  const datasetKeyOf = (path: unknown): string | null => {
+    if (typeof path !== "string") return null;
+    const m = /^\/datasets\/([^/]+)/.exec(path);
+    return m ? m[1] : null;
+  };
+
+  const collectRefs = (val: unknown): void => {
+    if (!val) return;
+    if (Array.isArray(val)) {
+      val.forEach(collectRefs);
+      return;
+    }
+    if (typeof val === "object") {
+      const obj = val as Record<string, unknown>;
+      const key = datasetKeyOf(obj.$state);
+      if (key) referenced.add(key);
+      for (const v of Object.values(obj)) collectRefs(v);
+    }
+  };
+
+  for (const p of patches) {
+    // Producer: an explicit /state/datasets/<key> seed.
+    const seed = /^\/state\/datasets\/([^/]+)/.exec(p.path);
+    if (seed && isNonEmpty(p.value)) produced.add(seed[1]);
+    // Producer: a /state (or /state/datasets) add whose value carries a datasets map.
+    if (
+      (p.path === "/state" || p.path === "/state/datasets") &&
+      p.value &&
+      typeof p.value === "object"
+    ) {
+      const datasets =
+        p.path === "/state/datasets"
+          ? (p.value as Record<string, unknown>)
+          : ((p.value as { datasets?: Record<string, unknown> }).datasets ?? {});
+      for (const [k, v] of Object.entries(datasets)) if (isNonEmpty(v)) produced.add(k);
+    }
+    collectRefs(p.value);
+  }
+
+  const unproduced = [...referenced].filter((k) => !produced.has(k));
+  return { referenced: [...referenced], produced: [...produced], unproduced };
+}

@@ -48,7 +48,11 @@ import {
 } from "@/lib/findings/lints";
 import type { FindingIssue } from "@/lib/contracts/findings";
 import { type ValidStateKeys } from "@/lib/llm/resolve-placeholders";
-import { auditComputedKeys, type PatchLike } from "@/lib/pipeline/computed-key-audit";
+import {
+  auditComputedKeys,
+  auditDatasetKeys,
+  type PatchLike,
+} from "@/lib/pipeline/computed-key-audit";
 import { assembleSpecFromPatches } from "@/lib/pipeline/assemble-spec";
 import { repairReachability } from "@/lib/compose/reachability";
 import { lintScalarProps, recoverScalar, recoverScalarKey } from "@/lib/compose/scalar-props";
@@ -536,13 +540,41 @@ export async function composeAndStreamDashboard(args: {
       }
     }
 
-    // Warn-only: flag components that read a /computed/<key> nothing produces —
-    // they render empty (blank table/map). Tracked in logs, spec left untouched.
+    // Flag components that read a /computed or /datasets key nothing produces —
+    // they render empty (the blank-table/blank-map family; run 572ff50a bound a
+    // MapView and its table to /datasets/isolated_markers while the run produced
+    // map_top_isolated_buildings, so both shipped blank with no error anywhere).
+    // Detection here; escalation to the bounded recompose happens with the other
+    // severe advisories below, where the recursion is already gated to ONE pass.
     const audit = auditComputedKeys(composedPatches);
     if (audit.unproduced.length > 0) {
       logger.warn("Composed spec reads unproduced computed keys (will render empty)", {
         unproduced: audit.unproduced,
         produced: audit.produced,
+      });
+    }
+    const datasetAudit = auditDatasetKeys(composedPatches, validStateKeys.datasets);
+    if (datasetAudit.unproduced.length > 0) {
+      logger.warn("Composed spec reads unproduced dataset keys (will render empty)", {
+        unproduced: datasetAudit.unproduced,
+        produced: datasetAudit.produced,
+      });
+    }
+    const danglingBindings = [
+      ...audit.unproduced.map((k) => `/computed/${k}`),
+      ...datasetAudit.unproduced.map((k) => `/datasets/${k}`),
+    ];
+    if (danglingBindings.length > 0) {
+      const validComputed = audit.produced;
+      const validDatasets = datasetAudit.produced;
+      proseLintIssues.set("dangling_data_binding", {
+        kind: "dangling_data_binding",
+        detail:
+          `these {"$state": ...} bindings reference keys that NOTHING produces, so their ` +
+          `components render empty: ${danglingBindings.join(", ")}. Bind $state paths ONLY to ` +
+          `keys that exist — datasets: ${[...validDatasets].join(", ") || "(none)"}` +
+          (validComputed.length > 0 ? `; computed: ${validComputed.join(", ")}` : "") +
+          `. Never invent a dataset name.`,
       });
     }
 
@@ -987,6 +1019,11 @@ export async function composeAndStreamDashboard(args: {
         // Provenance asserted for a finding that does not exist — worse
         // than saying no finding is available (MCP deep-dive review).
         "dangling_finding_reference",
+        // A $state binding to a dataset/computed key nothing produces ships a
+        // silently BLANK component (run 572ff50a: map + table both empty).
+        // The repair detail lists the real keys, so the recompose just has to
+        // use them instead of an invented name.
+        "dangling_data_binding",
       ]);
       const severe = [...proseLintIssues.values()]
         .filter((i) => SEVERE_KINDS.has(i.kind))

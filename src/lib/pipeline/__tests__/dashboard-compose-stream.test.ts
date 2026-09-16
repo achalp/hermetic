@@ -311,4 +311,64 @@ describe("composeAndStreamDashboard — generative path", () => {
     // Two compose passes = two streamText calls (initial + bounded repair).
     expect(vi.mocked(streamText).mock.calls.length).toBeGreaterThanOrEqual(2);
   });
+
+  it("runs a bounded repair recompose when a $state binding names a dataset nothing produces", async () => {
+    // Regression for run 572ff50a: the composer bound MapView.markers (and the
+    // top-10 table) to /datasets/isolated_markers while the run produced
+    // map_top_isolated_buildings — both components shipped BLANK with no error
+    // anywhere. The dangling_data_binding severe advisory must trigger exactly
+    // one bounded repair recompose that names the real keys.
+    nextLines = [
+      '{"op":"add","path":"/root","value":"root"}',
+      '{"op":"add","path":"/elements/root","value":{"type":"Grid","props":{},"children":["prose","map"]}}',
+      '{"op":"add","path":"/elements/prose","value":{"type":"TextBlock","props":{"content":"The most isolated building sits far from its neighbors."},"children":[]}}',
+      '{"op":"add","path":"/elements/map","value":{"type":"MapView","props":{"title":"Isolated buildings","markers":{"$state":"/datasets/isolated_markers"}},"children":[]}}',
+    ];
+    const exec = {
+      success: true,
+      results: { n: 10 },
+      chart_data: {
+        map_top_isolated_buildings: [{ lat: 47.5, lng: -122.2, nn_dist_m: 553.8 }],
+      },
+      datasets: {},
+      images: {},
+      execution_ms: 1,
+    } as unknown as SandboxExecutionResult;
+
+    const { streamText } = await import("ai");
+    await run(exec, baseOpts());
+    // Two compose passes = two streamText calls (initial + bounded repair).
+    const calls = vi.mocked(streamText).mock.calls.length;
+    expect(calls).toBeGreaterThanOrEqual(2);
+    // The repair prompt names the dangling path AND the real dataset key, so
+    // the recompose can rebind instead of re-guessing.
+    const repairCall = JSON.stringify(vi.mocked(streamText).mock.calls.at(-1));
+    expect(repairCall).toContain("/datasets/isolated_markers");
+    expect(repairCall).toContain("map_top_isolated_buildings");
+  });
+
+  it("does NOT trigger the bounded repair when $state bindings name produced datasets", async () => {
+    // Control: an identically-shaped spec whose binding uses the real
+    // chart_data key composes in a single pass.
+    nextLines = [
+      '{"op":"add","path":"/root","value":"root"}',
+      '{"op":"add","path":"/elements/root","value":{"type":"Grid","props":{},"children":["prose","map"]}}',
+      '{"op":"add","path":"/elements/prose","value":{"type":"TextBlock","props":{"content":"The most isolated building sits far from its neighbors."},"children":[]}}',
+      '{"op":"add","path":"/elements/map","value":{"type":"MapView","props":{"title":"Isolated buildings","markers":{"$state":"/datasets/map_top_isolated_buildings"}},"children":[]}}',
+    ];
+    const exec = {
+      success: true,
+      results: { n: 10 },
+      chart_data: {
+        map_top_isolated_buildings: [{ lat: 47.5, lng: -122.2, nn_dist_m: 553.8 }],
+      },
+      datasets: {},
+      images: {},
+      execution_ms: 1,
+    } as unknown as SandboxExecutionResult;
+
+    const { streamText } = await import("ai");
+    await run(exec, baseOpts());
+    expect(vi.mocked(streamText).mock.calls.length).toBe(1);
+  });
 });
