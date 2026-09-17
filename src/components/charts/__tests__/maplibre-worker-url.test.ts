@@ -31,7 +31,7 @@ describe("maplibre worker vendoring", () => {
 
   it("the side-effect module points MapLibre at the vendored worker", async () => {
     const { setWorkerUrl } = await import("maplibre-gl");
-    await import("@/lib/maplibre-worker-url");
+    await import("@/components/charts/maplibre-worker-url");
     expect(vi.mocked(setWorkerUrl)).toHaveBeenCalledWith("/vendor/maplibre/maplibre-gl-worker.mjs");
   });
 });
