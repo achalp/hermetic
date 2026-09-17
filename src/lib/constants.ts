@@ -454,7 +454,7 @@ export const DEFAULT_LOCAL_LLM_ENDPOINTS = {
 
 // External map/export assets live in a leaf module so Edge-compiled
 // middleware can derive its CSP host list without evaluating this file.
-export { BASEMAP_STYLE_URL, BASEMAP_TILE_URLS, REVEALJS_CDN_URL } from "@/lib/basemap-constants";
+export { BASEMAP_STYLE_URL, BASEMAP_STYLE_URLS, REVEALJS_CDN_URL } from "@/lib/basemap-constants";
 
 /**
  * Max rows shipped to the client for interactive (DataController) filtering.

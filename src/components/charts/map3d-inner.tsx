@@ -4,14 +4,29 @@
 import "@/components/charts/deckgl-init";
 
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
-import DeckGL from "@deck.gl/react";
 import { WebMercatorViewport } from "@deck.gl/core";
+import type { DeckProps } from "@deck.gl/core";
+import { MapboxOverlay } from "@deck.gl/mapbox";
 import { ScatterplotLayer, ArcLayer, ColumnLayer } from "@deck.gl/layers";
 import { HexagonLayer, HeatmapLayer } from "@deck.gl/aggregation-layers";
-import { TileLayer } from "@deck.gl/geo-layers";
-import { BitmapLayer } from "@deck.gl/layers";
+import { Map as MapGL, useControl } from "react-map-gl/maplibre";
+import "maplibre-gl/dist/maplibre-gl.css";
 import { resolveColor, useChartColors } from "@/components/theme/chart-theme";
-import { BASEMAP_TILES, rampColor, numericRange } from "@/components/charts/map-color-ramp";
+import { rampColor, numericRange } from "@/components/charts/map-color-ramp";
+import { BASEMAP_STYLE_URLS } from "@/lib/constants";
+
+/**
+ * deck.gl layers rendered as a MapLibre overlay (the pattern deck documents
+ * for react-map-gl v8+). Replaces the old raster TileLayer basemap: CARTO
+ * began watermarking anonymous raster tiles with "API KEY REQUIRED" (issue
+ * #253), so the basemap is now OpenFreeMap vector — same MapLibre engine the
+ * 2D MapView already uses, attribution injected automatically from the style.
+ */
+function DeckGLOverlay(props: DeckProps) {
+  const overlay = useControl<MapboxOverlay>(() => new MapboxOverlay(props));
+  overlay.setProps(props);
+  return null;
+}
 
 interface Map3DInnerProps {
   data: Record<string, unknown>[];
@@ -179,25 +194,8 @@ export function Map3DInner(props: Map3DInnerProps) {
     }
   }, [data, lat_key, lng_key, pitch, bearing, size]);
 
-  // Base map tile layer — dark (default) or light Carto basemap.
-  const tileLayer = new TileLayer({
-    id: "basemap-tiles",
-    data: BASEMAP_TILES[basemap ?? "light"],
-    minZoom: 0,
-    maxZoom: 19,
-    tileSize: 256,
-    renderSubLayers: (tileProps: Record<string, unknown>) => {
-      const { boundingBox } = tileProps.tile as {
-        boundingBox: [[number, number], [number, number]];
-      };
-      return new BitmapLayer({
-        ...tileProps,
-        data: undefined,
-        image: tileProps.data as string,
-        bounds: [boundingBox[0][0], boundingBox[0][1], boundingBox[1][0], boundingBox[1][1]],
-      });
-    },
-  });
+  // Vector basemap style — light (default) or dark OpenFreeMap style.
+  const basemapStyle = BASEMAP_STYLE_URLS[basemap ?? "light"];
 
   const dataLayer = useMemo(() => {
     const getPosition = (d: Record<string, unknown>): [number, number] => [
@@ -395,15 +393,21 @@ export function Map3DInner(props: Map3DInnerProps) {
   return (
     <div ref={containerRef} style={{ position: "relative", width: "100%", height: height ?? 500 }}>
       {ready && (
-        <DeckGL
+        <MapGL
           initialViewState={viewState}
-          controller
-          layers={[tileLayer, dataLayer]}
-          onError={handleError}
-          onHover={onHover}
-          onClick={onDeckClick}
-          getCursor={({ isHovering }: { isHovering: boolean }) => (isHovering ? "pointer" : "grab")}
-        />
+          mapStyle={basemapStyle}
+          style={{ position: "absolute", inset: 0 }}
+        >
+          <DeckGLOverlay
+            layers={[dataLayer]}
+            onError={handleError}
+            onHover={onHover}
+            onClick={onDeckClick}
+            getCursor={({ isHovering }: { isHovering: boolean }) =>
+              isHovering ? "pointer" : "grab"
+            }
+          />
+        </MapGL>
       )}
       {/* Hover tooltip */}
       {hoverInfo && !clickInfo && (

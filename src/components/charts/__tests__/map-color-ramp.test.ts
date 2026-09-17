@@ -1,13 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { BASEMAP_TILES, rampColor, numericRange } from "@/components/charts/map-color-ramp";
+import { rampColor, numericRange } from "@/components/charts/map-color-ramp";
 
 describe("map color ramp", () => {
-  it("uses free, keyless Carto basemaps (dark default)", () => {
-    expect(BASEMAP_TILES.dark).toContain("dark_all");
-    expect(BASEMAP_TILES.light).toContain("light_all");
-    expect(BASEMAP_TILES.dark).not.toMatch(/token|apikey|key=/i);
-  });
-
   it("maps t=0 to the dark-blue low end and t=1 to the dark-red high end", () => {
     expect(rampColor(0)).toEqual([48, 18, 59]);
     expect(rampColor(1)).toEqual([122, 4, 3]);

@@ -1,15 +1,10 @@
-import { BASEMAP_TILE_URLS } from "@/lib/constants";
-
 /**
- * Dependency-free color-ramp + basemap helpers for the deck.gl maps. Kept out of
- * the deck.gl component files (which pull WebGL) so they stay unit-testable.
+ * Dependency-free color-ramp helpers for the deck.gl maps. Kept out of the
+ * deck.gl component files (which pull WebGL) so they stay unit-testable.
+ * (The raster basemap-tile table that used to live here died with the CARTO
+ * raster basemap — Map3D now renders a MapLibre vector basemap underneath,
+ * issue #253.)
  */
-
-/** Carto basemaps — free, keyless. Retina (@2x) for crisp labels. */
-export const BASEMAP_TILES: Record<"dark" | "light", string> = {
-  dark: BASEMAP_TILE_URLS.dark,
-  light: BASEMAP_TILE_URLS.light,
-};
 
 /**
  * Turbo color ramp (dark blue → cyan → green → orange → dark red). Every stop is
