@@ -11,6 +11,7 @@ import { ScatterplotLayer, ArcLayer, ColumnLayer } from "@deck.gl/layers";
 import { HexagonLayer, HeatmapLayer } from "@deck.gl/aggregation-layers";
 import { Map as MapGL, useControl } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
+import "@/components/charts/maplibre-worker-url";
 import { resolveColor, useChartColors } from "@/components/theme/chart-theme";
 import { rampColor, numericRange } from "@/components/charts/map-color-ramp";
 import { BASEMAP_STYLE_URLS } from "@/lib/constants";

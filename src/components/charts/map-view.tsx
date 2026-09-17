@@ -11,6 +11,7 @@ import MapGL, {
   type MapLayerMouseEvent,
 } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
+import "@/components/charts/maplibre-worker-url";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { resolveColor, useChartColors } from "@/components/theme/chart-theme";
 import { useDrillClickRef } from "@/components/drill-down-context";

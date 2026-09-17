@@ -1,0 +1,121 @@
+{
+  "id": "proj_1789581583247_95kf00",
+  "version": "1.0",
+  "name": "hermetic-blog-post-august",
+  "storageType": "adjacent",
+  "rootPath": "/home/achal/dev/hermetic/release-notes/.flow_hermetic-blog-post-august",
+  "mainFile": "../hermetic-blog-post-august.md",
+  "files": [
+    {
+      "id": "file_1789581583249_2rfjru",
+      "path": "hermetic-blog-post-august.md",
+      "type": "markdown",
+      "role": "main",
+      "size": 10239,
+      "modifiedAt": "2026-09-16T17:59:43.249Z",
+      "addedBy": "system"
+    },
+    {
+      "id": "file_1789581583249_i0j0r5",
+      "path": "hermetic-blog-post-july.md",
+      "type": "markdown",
+      "role": "include",
+      "size": 11479,
+      "modifiedAt": "2026-09-16T17:59:43.249Z",
+      "addedBy": "system"
+    },
+    {
+      "id": "file_1789581583249_ebgqv1",
+      "path": "hermetic-blog-post-june-combined.md",
+      "type": "markdown",
+      "role": "include",
+      "size": 10843,
+      "modifiedAt": "2026-09-16T17:59:43.249Z",
+      "addedBy": "system"
+    },
+    {
+      "id": "file_1789581583249_kkpt0q",
+      "path": "hermetic-blog-post-june-interactive.md",
+      "type": "markdown",
+      "role": "include",
+      "size": 14841,
+      "modifiedAt": "2026-09-16T17:59:43.249Z",
+      "addedBy": "system"
+    },
+    {
+      "id": "file_1789581583249_9o926t",
+      "path": "hermetic-blog-post-june-warehouse.md",
+      "type": "markdown",
+      "role": "include",
+      "size": 13000,
+      "modifiedAt": "2026-09-16T17:59:43.249Z",
+      "addedBy": "system"
+    },
+    {
+      "id": "file_1789581583249_ezhfiy",
+      "path": "hermetic-blog-post-june.md",
+      "type": "markdown",
+      "role": "include",
+      "size": 10868,
+      "modifiedAt": "2026-09-16T17:59:43.249Z",
+      "addedBy": "system"
+    },
+    {
+      "id": "file_1789581583249_tlam62",
+      "path": "hermetic-blog-post-march.md",
+      "type": "markdown",
+      "role": "include",
+      "size": 7553,
+      "modifiedAt": "2026-09-16T17:59:43.249Z",
+      "addedBy": "system"
+    },
+    {
+      "id": "file_1789581583249_pqynkv",
+      "path": "hermetic-blog-post-may.md",
+      "type": "markdown",
+      "role": "include",
+      "size": 8895,
+      "modifiedAt": "2026-09-16T17:59:43.249Z",
+      "addedBy": "system"
+    },
+    {
+      "id": "file_1789581583249_0cqjas",
+      "path": "hermetic-blog-post-september.md",
+      "type": "markdown",
+      "role": "include",
+      "size": 8547,
+      "modifiedAt": "2026-09-16T17:59:43.249Z",
+      "addedBy": "system"
+    },
+    {
+      "id": "file_1789581583249_m9ut4o",
+      "path": "hermetic-linkedin-post-july.md",
+      "type": "markdown",
+      "role": "include",
+      "size": 1895,
+      "modifiedAt": "2026-09-16T17:59:43.249Z",
+      "addedBy": "system"
+    },
+    {
+      "id": "file_1789581583249_bpc7ug",
+      "path": "hermetic-linkedin-post-september.md",
+      "type": "markdown",
+      "role": "include",
+      "size": 1898,
+      "modifiedAt": "2026-09-16T17:59:43.249Z",
+      "addedBy": "system"
+    }
+  ],
+  "dependencies": [],
+  "lastAnalyzed": "",
+  "settings": {
+    "compiler": "tectonic",
+    "outputFormat": "pdf",
+    "synctex": true,
+    "autoFixMode": "aggressive",
+    "assetFolder": "assets",
+    "styleFolder": "styles"
+  },
+  "createdAt": "2026-09-16T17:59:43.247Z",
+  "modifiedAt": "2026-09-16T17:59:43.249Z"
+}

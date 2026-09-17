@@ -82,3 +82,4 @@ src-tauri/gen/schemas/
 # DuckDB-WASM same-origin assets (build log D18) — 45MB of generated/vendored
 # binaries rebuilt by scripts/build-duckdb-wasm-assets.mjs; never committed.
 /public/duckdb-wasm/
+/public/vendor/
