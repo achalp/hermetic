@@ -257,6 +257,11 @@ async function main() {
   });
   if (await has(join(ROOT, "public")))
     await cp(join(ROOT, "public"), join(OUT, "public"), { recursive: true });
+  if (!(await has(join(OUT, "public", "vendor", "maplibre", "maplibre-gl-worker.mjs")))) {
+    throw new Error(
+      "sidecar is missing public/vendor/maplibre/maplibre-gl-worker.mjs — every basemap would be blank on install (the maplibre worker 404s silently)"
+    );
+  }
   if (!(await has(join(OUT, "public", "duckdb-wasm", "duckdb-bundle.js")))) {
     throw new Error(
       "sidecar is missing public/duckdb-wasm/duckdb-bundle.js — remote reads would fail on install"
