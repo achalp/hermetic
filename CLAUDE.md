@@ -42,8 +42,12 @@ Findings below were TRACED, not assumed — do not re-litigate without new evide
   allowlists 403 every s3 read (schema-extractor.ts / schema-script.ts; F1).
 - `runWarehouseQuery` callers pass `getRunSignal()` — Stop must cancel
   server-side (BigQuery billing).
-- Docker is the ONLY sandbox runtime (E2B/microsandbox removed — they cannot
-  enforce `--network none`). The capability gate rejects rather than degrades.
+- Two sandbox runtimes, each held to what `RUNTIME_CAPABILITIES`
+  (sandbox/capabilities.ts) declares: Docker (web/CLI/MCP) and the wasm tier
+  (Pyodide in the desktop webview worker, isolated by its exec CSP; no mounts,
+  no in-worker network — remote sources are fetched host-side). E2B/microsandbox
+  were removed (they cannot enforce `--network none`). The capability gate
+  rejects rather than degrades. README "Sandbox runtimes" has the matrix.
 - Long-lived processes inside containers start via `docker exec -d`, NEVER
   `sh -c "... nohup ... &"` in a foreground exec: Docker >= 28 kills the exec
   session's process group on exit (broke the egress gateway proxy — every

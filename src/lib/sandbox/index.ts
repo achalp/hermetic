@@ -336,7 +336,7 @@ export function executeSandbox(
   }
 
   // Ephemeral fallback. A run reaching here was NOT granted network above, so
-  // Docker runs it under --network none. Docker is the only runtime.
+  // Docker runs it under --network none. (wasm runs returned earlier.)
   return dockerExecutor(csvContent, code, {
     geojsonContent,
     additionalFiles,

@@ -84,12 +84,12 @@ The CLI boots the same env-config snapshot as the Next harness
 (`src/harness/env-config.ts` owns the full key list). The ones that matter
 most from the command line:
 
-| Variable                                            | Effect                                                                                                                                                              |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ANTHROPIC_API_KEY` (or your usual provider config) | LLM provider credentials for live runs.                                                                                                                             |
-| `HERMETIC_LLM_MODE`                                 | `replay` serves LLM responses from committed fixtures (offline, free); `record` captures live responses into the fixture dir. Unset = live calls, nothing recorded. |
-| `HERMETIC_LLM_FIXTURES`                             | Fixture directory for record/replay. Default: `test-fixtures/llm`.                                                                                                  |
-| `SANDBOX_RUNTIME`                                   | Sandbox backend for code execution (`docker` — the only runtime). Needs the image: `docker build -t hermetic-sandbox ./docker/sandbox/`.                            |
+| Variable                                            | Effect                                                                                                                                                                               |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ANTHROPIC_API_KEY` (or your usual provider config) | LLM provider credentials for live runs.                                                                                                                                              |
+| `HERMETIC_LLM_MODE`                                 | `replay` serves LLM responses from committed fixtures (offline, free); `record` captures live responses into the fixture dir. Unset = live calls, nothing recorded.                  |
+| `HERMETIC_LLM_FIXTURES`                             | Fixture directory for record/replay. Default: `test-fixtures/llm`.                                                                                                                   |
+| `SANDBOX_RUNTIME`                                   | Sandbox backend for code execution. The CLI runs Docker only (the WASM tier needs the desktop app's webview). Needs the image: `docker build -t hermetic-sandbox ./docker/sandbox/`. |
 
 There is currently **no environment variable** for relocating the storage
 roots — the CLI writes durable state under `<cwd>/data` (and scratch/user
