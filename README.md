@@ -1,6 +1,6 @@
 # Hermetic
 
-Hermetic is an open-source, local-first AI data analyst: ask questions of your data in natural language and get interactive dashboards, without the model ever seeing your rows.
+Hermetic is an open-source, local-first AI data analyst: ask questions of your data in natural language and get interactive dashboards, without the model ever seeing your rows ([what it does see](#what-the-model-sees)).
 
 - **Sources**: CSV, Excel, GeoJSON, and Parquet files (single files, Hive-partitioned folders, and cloud Parquet on S3/HTTPS at billion-row scale) — or direct connections to PostgreSQL, BigQuery, ClickHouse, Snowflake, Databricks, Trino, and Hive.
 - **Analysis**: single-question dashboards, conversational follow-ups, and a multi-step **Investigate** agent; every narrative number is checked against what the analysis actually computed.
@@ -41,77 +41,40 @@ Every artifact is [build-provenance attested](ops/RELEASE.md) (`gh attestation v
 
 Hermetic explores the idea that LLMs can generate correct data analysis code **without seeing the data itself**.
 
-**Shape over samples.** Instead of sending rows to the LLM, Hermetic extracts the schema (column names, types, distributions, ranges, cardinality, correlations) and shares only that metadata as context. The LLM never sees actual data rows by default. This keeps data private, reduces token usage, and forces the model to reason about structure rather than memorize values.
+**Shape over samples.** Instead of sending rows to the LLM, Hermetic extracts the schema (column names, types, distributions, ranges, cardinality, correlations) and shares only that metadata as context. The LLM never sees data rows by default. Metadata is not nothing: it includes numeric and date ranges and the labels of categorical columns. Identifier-like columns (every value unique, or emails, phones, UUIDs, IPs) contribute their shape but never their values. The exact boundary is in [What the model sees](#what-the-model-sees). This keeps data private, reduces token usage, and forces the model to reason about structure rather than memorize values.
 
-**Blind execution.** The LLM generates Python code but never sees the results. Code runs in an isolated Docker sandbox, and the execution output (scalars, chart data, datasets) flows directly to the UI composition step. The LLM composing the dashboard works from result schemas and placeholders, not raw numbers. Every number displayed comes from actual computation on the real data. (A **composer sight** setting can optionally let the composer see computed values to sharpen phrasing — the binding discipline is unchanged either way, and the Verify panel records which mode ran.)
+**Blind execution.** The LLM generates Python code but never sees the results. Code runs in an isolated sandbox, and the execution output (scalars, chart data, datasets) flows directly to the UI composition step. The LLM composing the dashboard works from result schemas and placeholders, not raw numbers. Every number displayed comes from actual computation on the real data. (A **composer sight** setting can optionally let the composer see computed values to sharpen phrasing — the binding discipline is unchanged either way, and the Verify panel records which mode ran.)
 
 **Claims, not prose.** The generated analysis doesn't just compute — it **declares** what it found. `declare_finding` records each claim (name, typed value, plain-language definition) adjacent to the computation that produced it; `declare_check` records the data-quality checks the model designed for this dataset, with computed evidence, executed as code; `declare_series`/`declare_value` declare the chart data with **roles** (which column is time, which are measures, their units, the observation count, the raw-vs-screened variants, and how a measure re-aggregates from the source table — the recipe that lets a dashboard filter honestly instead of guessing). Narrative binds these claims (`$finding:` placeholders resolved server-side) instead of restating them, a lint battery cross-checks prose, results, charts, and claims against each other, and anything shipped that points at a declaration which doesn't exist — a cited finding, an executed screen, a methodological decision — is flagged or repaired before it reaches you.
 
 **Statistics as total functions.** The judgment calls that make analyses subtly wrong — is a `$0.00` price a real value or an unrecorded-value sentinel? can a 52-observation year headline a series whose typical year has 600? is the mean valid under this skew? which correlation coefficient survives these ties? — are not left to per-run model discretion. A tested statistical runtime (`docker/sandbox/hermetic_runtime`) profiles every declared series into a **regime profile** (zero inflation, heavy tails, contamination, count skew, thin edges, short series, ties…), and a closed **regime matrix** — every claim type × every regime, all cells explicit, the rendered table generated from the code and drift-pinned by tests — maps each hazard to its response. Where possible the response is enforced _inside_ the claim function: sentinel zeros are excluded automatically when a measure's unit is monetary, trends become count-weighted least squares when observation counts exist, heavy-tailed group comparisons dispatch to Kruskal–Wallis, provably disordered series are refused rather than fit, and thin periods are gated by a relative attestation bar. The claim layer cannot disagree with the declared policy, and identical data cannot produce different verdicts run to run.
 
-**Sandboxed execution.** Code runs in Docker containers with no access to the host filesystem. Containers run with networking disabled (`--network none`) by default; network is enabled only when the generated code actually reads a remote data source (cloud Parquet over `s3://`/`https://`), and those runs use a fresh ephemeral container on an internal network behind a deny-by-default egress proxy, never the shared warm one. Data is passed in via stdin and results are read from stdout. The warm container is reused across queries for speed but clears working data between runs. Docker is the only runtime — alternatives that couldn't enforce network isolation were removed, and runs that need guarantees the environment can't provide are rejected rather than degraded.
+**Sandboxed execution.** Code runs in one of two sandboxes (compared in [Sandbox runtimes](#sandbox-runtimes)): Docker for the web app, CLI, and MCP server, or a WebAssembly sandbox inside the desktop app. Docker containers have no access to the host filesystem. Containers run with networking disabled (`--network none`) by default; network is enabled only when the generated code actually reads a remote data source (cloud Parquet over `s3://`/`https://`), and those runs use a fresh ephemeral container on an internal network behind a deny-by-default egress proxy, never the shared warm one. Data is passed in via stdin and results are read from stdout. The warm container is reused across queries for speed but clears working data between runs. Either runtime is held to what it can enforce: a run that needs a guarantee the active runtime can't provide is rejected rather than degraded, and runtimes that couldn't enforce network isolation (E2B, Microsandbox) were removed.
 
 **Adaptive UI, two composer architectures.** Dashboards are declarative render specs (an owned, vendored fork of JSON-Render — `src/spec`): charts, stat cards, tables, annotations, and filters tailored to each question. Two composers can produce that spec, selectable in Settings:
 
 - **Generative** (default): the LLM composes the layout freely from result schemas, with the lint battery and a bounded repair pass guarding the output.
 - **Compiled**: one small LLM call **writes the document** — flowing analyst prose in which every figure must be a `$finding:` binding — and everything else is compiled deterministically. The plan is a typed grammar of speech acts (ANSWER / TREND / PEAK / ENDPOINT / CONTRAST / CAVEAT / INSIGHT) plus document structure (SECTION headings, chart EXPLAINERs, CALLOUTs, METHOD, CONCLUSION, NEXT_STEPS, LIMITS), and any node can **anchor** a chart so explainers sit above their figure and caveats sit exactly where they apply. A literal digit outside a binding is rejected; a caveat can only reference a declared check, so a fabricated mechanism has no syntax to exist in. When a node fails validation, **only that node degrades** to its template — the document survives. Charts derive from the declared series' roles via a **view catalog** (group matrices, unit-split axes, coverage companions forced in when thin-data regimes fire, precision tables for document styles), pair into two-column rows, carry human legend labels, and — when the analysis declares how a measure aggregates — come with **verified interactive filters** (below). Every style, however brief, carries the answer, its method, and a conclusion. Compiled dashboards are also what the editing surface edits. The block-by-block walkthrough is below.
 
-## The compiled path, block by block
+The compiled path is walked through block by block, with what each output style (brief, dashboard, report, deep dive) changes and what it doesn't, in [docs/compiled-path.md](docs/compiled-path.md).
 
-The organizing idea: **one small LLM call decides what to say; everything that decides whether it's true is code.**
+## What the model sees
 
-```
-question ──► ANALYSIS (LLM writes Python)
-                │  declare_finding / declare_check / declare_series
-                ▼
-          SANDBOX RUN (model never sees rows)
-                │  envelope: claims + regimes + series + results
-                ▼
-          PLAN CALL (the one narrative LLM call)
-                │  sees projections only — names, definitions, field names
-                ▼
-          COMPILER (deterministic)
-                │  templates + riders + charts + caveats, all $finding: bindings
-                ▼
-          FINALIZER / RESOLVER (deterministic)
-                │  bindings → real values, units, shapes rendered as prose
-                ▼
-          POST-RENDER INVARIANTS ──► document / persist / edit
-```
+"Never sees your rows" is a claim about a specific boundary. Here is what crosses it.
 
-**Block 1 — The analysis declares claims.** Code generation produces a Python script that doesn't just compute — it _declares_. `declare_finding` records each claim with a name, typed value, and plain-language definition, right beside the computation. The statistical judgment inside those helpers isn't the model's: the runtime (`docker/sandbox/hermetic_runtime`) profiles every series — zero inflation, heavy tails, thin edges — and the regime matrix dispatches: Kruskal–Wallis under heavy tails, count-weighted trends, sentinel-zero exclusion for money. A helper that looked and found nothing says so in the value (`"detected": false`). The envelope that leaves the sandbox is the whole truth the rest of the pipeline is allowed to use.
+| Sent to the model                                                                                                        | When                                       |
+| ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------ |
+| Column names, types, row count, null counts, correlations                                                                | Always                                     |
+| Numeric min/max/mean/percentiles; date ranges                                                                            | Always                                     |
+| Categorical labels: all of them if a column has ≤ 30 distinct values, else the 10 most frequent that repeat, with counts | Always — except identifier-like columns    |
+| Identifier-like columns (every value unique, or an email / phone / UUID / IP pattern): distinct count and pattern only   | Values are **never** sent                  |
+| Result schemas and placeholders (not computed numbers)                                                                   | Always                                     |
+| Computed values (to sharpen phrasing)                                                                                    | Only with **composer sight** on (Settings) |
+| Computed values and the rendered dashboard (never rows)                                                                  | Only when you run the on-demand **audit**  |
+| 5 real sample rows and per-column sample values                                                                          | Only in **sample** schema mode (opt-in)    |
+| Warehouse rows returned by MCP `run_sql` (default 200, max 1,000)                                                        | Only when an MCP host model calls it       |
 
-**Block 2 — The projection decides what the narrative model may see.** `src/lib/findings/project.ts` strips every value, keeping names, definitions (numeral-scrubbed), and _field names_ — minus booleans (a flag has no word for a sentence slot) and minus everything on a non-detection (nothing left to misuse). This is the privacy boundary and the truthfulness boundary in one: the planner can't leak values it never had, and can't fabricate around numbers it was never offered.
-
-**Block 3 — One LLM call writes the plan.** `src/lib/compose/planner.ts` sends the question, the projections, and the shipped chart ids, and gets back a typed program: ANSWER / TREND / EXPLAIN / CAVEAT / INSIGHT / METHOD / CONCLUSION nodes, each with refs and authored prose in which **every figure must be a `$finding:` binding** — a literal digit is a validation error. `plan.ts` validates structurally: exactly one ANSWER, every ref resolves, CAVEATs may only reference checks, boolean bindings rejected. A failed node degrades individually (salvage); only total wreckage falls back to the deterministic default plan. This is the quarantine: the model's generative act is ~10 nodes of prose with holes where the numbers go.
-
-**Block 4 — The compiler builds the document, no LLM.** `src/lib/compose/compile.ts` walks the plan: failed-check banner first, headline tiles, one element per node with stable ids (so edits survive re-runs), charts derived from the declared series' roles, anchored under their EXPLAINs, filters wired from declared aggregation recipes. `realizer.ts` supplies text where the planner didn't — and appends **riders** to text where it did: catch-all disclosure, relaxed attestation bar, excluded-trailing, thin-groups, zero-screen. Authored prose can replace a template's headline sentence; it cannot suppress a disclosure.
-
-**Block 5 — Resolution makes the numbers real.** The document so far contains no data — just bindings. The finalizer (`src/lib/llm/resolve-placeholders.ts`) substitutes each `$finding:` against the envelope: currency gets 2dp and separators, units attach by declared identity, and non-scalar values go through the value renderer — intervals as "−11.15 to 11.51", mappings ranked with the minimum named. A genuinely unspeakable value drops its token, never its sentence. This is the same resolution stack generative mode uses, so there is exactly one path to trust.
-
-**Block 6 — Invariants, then the record.** After finalization, the pipeline re-checks the rendered document: any plan node that resolved empty degrades to its deterministic template; an ANSWER empty even then is a recorded structural failure — the document never ships answer-less. The grounding verifier counts declared-vs-cited claims and untraceable figures into the Verify panel; an on-demand adversarial audit reads the whole thing back. Then everything persists — spec, plan, code, envelope — which is why edits recompile the same plan instead of re-asking the model, and why a restore replays the identical document.
-
-The failure philosophy stitching the blocks together: each one makes a class of lie _unrepresentable_ rather than detected — no rows in the model's context (1), no numbers in the planner's hands (2), no syntax for a fabricated caveat (3), no suppressible disclosure (4), no unformatted or dangling value (5), no empty answer (6). The defects that do slip through live at the _seams between blocks_ — a projection offering the wrong field, a resolver refusing a speakable value — which is why the audit trail (`specs/`) keeps landing fixes at boundaries rather than inside any single block.
-
-## Output styles — what a purpose changes (and what it doesn't)
-
-Every analysis is composed for one of four **consumption contexts**, and the same run can be composed by either the generative or the compiled path. A purpose is defined by _how it's read_, which fixes the narration/summarization style and a cost/latency envelope — **not** by chart count, and **never** by how rigorously anything is analyzed.
-
-Three levers, decoupled:
-
-- **Rigor is flat.** A brief's one-line verdict is as well-tested as a deep-dive's. Every style computes the same Computed-Findings battery (trend significance, step-change scan, base-effect flag) and the same **rigor floor** — decompose the headline change into its parts, and compute the constituents of any ratio the answer names — regardless of how briefly it's shown.
-- **Breadth scales, and it's the _only_ analysis lever that does.** More sub-questions cost real money (each ≈ one SQL-gen + code-gen + sandbox run), and a 30-second-read brief should also _generate_ fast — so breadth tracks the context's patience, not the reader's deserved rigor.
-- **Presentation is a guardrail, not a definition.** Charts are cheap now (deterministic on the compiled path), so hiding analysis you already ran is user-hostile. Density is governed by the **narration frame** (compiled `maxNodes`; the generative prompt), and the chart/tile caps are generous ceilings, not the thing that makes a brief a brief.
-
-| Lever                                                | brief | dashboard | report | deep-dive |
-| ---------------------------------------------------- | ----- | --------- | ------ | --------- |
-| **Rigor floor** (battery + decompose + constituents) | ✓     | ✓         | ✓      | ✓         |
-| **Breadth** — `maxSubQuestions` (cost/latency)       | 2     | 3         | 4      | 10        |
-| **Narration** — `maxNodes` (the succinctness lever)  | 7     | 12        | 22     | 28        |
-| **View cap** — `maxViews` (relaxed guardrail)        | 3     | 6         | 10     | 16        |
-| **Headline tiles** — `maxTilesFor`                   | 3     | 5         | 4      | 5         |
-
-**What keeps rigor flat** is two purpose-independent floors: a _prompt_ floor (the Computed-Findings battery + rigor-floor clause, carried in every style's code-gen scope) and a _deterministic_ floor (`result-validator.ts` and a battery of findings lints — trend-contract, check-gating, null-ancestry, definition-consistency, and more — that run on every manifest with no purpose branch). A claim can't be asserted without its evidence no matter which style asked for it. The purpose only decides how much of what was found gets narrated, and across how many angles it was worth exploring.
+Two things to know: a column with ≤ 30 distinct values lists every label even in a small file, which is how the model learns a dimension's categories; and a warehouse connection sends table and column names (plus dbt descriptions if present) to generate SQL. If a label itself is sensitive, treat it as sent.
 
 ## Quick Start
 
@@ -131,6 +94,8 @@ There are two runtimes, from one codebase:
 
 - **Web app + Docker** — what `./start.sh` sets up by default. The dev server plus a Docker sandbox for executing analysis code. Best for development and for machines that already run Docker.
 - **Embedded desktop app** — a single platform executable (Tauri) that runs the analysis in a **WebAssembly sandbox (Pyodide + DuckDB-WASM), no Docker required**. This is the download for non-technical users.
+
+The two sandboxes enforce isolation differently; [Sandbox runtimes](#sandbox-runtimes) compares them.
 
 `./start.sh` (from a clone) asks up front which you want:
 
@@ -174,7 +139,7 @@ A `tauri build` produces a **per-OS** installer and must be run **on each target
 
    Add credentials for your LLM provider (Anthropic API key, AWS credentials, or GCP project). See [Configuration](#configuration). For local-only usage with Ollama, no `.env.local` changes are needed. Configure it from the Settings UI instead.
 
-3. **Set up the sandbox** (Docker — the only runtime):
+3. **Set up the sandbox** (Docker — the web app's runtime; the desktop app needs none):
 
    ```bash
    docker build -t hermetic-sandbox docker/sandbox
@@ -271,7 +236,7 @@ A `tauri build` produces a **per-OS** installer and must be run **on each target
 - **Composer architecture.** Switch between the generative and compiled composers from Settings (see [Philosophy](#philosophy)); the compiled path is what enables deterministic recompiles and dashboard editing.
 - **Local models.** MLX (Apple Silicon), llama.cpp, or Ollama. Detect, download, and activate models from the Settings drawer.
 - **Four themes.** Focus (emerald, default), Stamen (cartographic), Info is Beautiful (vivid), Pentagram (reductive). Each with light and dark variants.
-- **Sandbox runtime.** Docker, exclusively — the only runtime that can enforce full network isolation (`--network none`). The capability gate fails closed: a run that needs isolation the environment can't provide is rejected, never silently degraded.
+- **Sandbox runtime.** Docker or the built-in WebAssembly sandbox (no Docker), selectable in Settings — see [Sandbox runtimes](#sandbox-runtimes) for what each enforces. The capability gate fails closed: a run that needs isolation the active runtime can't provide is rejected, never silently degraded.
 
 ## Using from Claude (MCP server)
 
@@ -336,7 +301,7 @@ The SQL is available in the **Artifacts** panel (SQL tab) alongside the Python a
   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO hermetic_ro;
   ```
 
-  The examples below use a superuser only for brevity; do not do that in production.
+  The examples in [docs/warehouses.md](docs/warehouses.md) use a superuser only for brevity; do not do that in production.
 
 **Investigate adds more for its fan-out:**
 
@@ -345,174 +310,13 @@ The SQL is available in the **Artifacts** panel (SQL tab) alongside the Python a
 
 Tested end-to-end against live public warehouses (ClickHouse Playground, BigQuery public datasets).
 
-### PostgreSQL
-
-Works with PostgreSQL, Amazon Redshift, Neon, Supabase, AlloyDB, CockroachDB, and any PostgreSQL wire-compatible database.
-
-**Connection fields:**
-
-| Field    | Example     | Notes                     |
-| -------- | ----------- | ------------------------- |
-| Host     | `localhost` | Hostname or IP            |
-| Port     | `5432`      | Default: 5432             |
-| Database | `mydb`      |                           |
-| User     | `postgres`  |                           |
-| Password |             |                           |
-| Schema   | `public`    | Default: public           |
-| SSL      | unchecked   | Check for cloud databases |
-
-**Environment variables** (optional, for `start.sh` or `.env.local`):
-
-```bash
-WAREHOUSE_TYPE=postgresql
-WAREHOUSE_PG_HOST=localhost
-WAREHOUSE_PG_PORT=5432
-WAREHOUSE_PG_DATABASE=mydb
-WAREHOUSE_PG_USER=postgres
-WAREHOUSE_PG_PASSWORD=secret
-WAREHOUSE_PG_SCHEMA=public
-WAREHOUSE_PG_SSL=false
-```
-
-**Sample dataset — Pagila (DVD rental):**
-
-```bash
-# Start a local PostgreSQL with the Pagila sample database
-docker run -d --name pagila \
-  -e POSTGRES_PASSWORD=postgres \
-  -p 5432:5432 \
-  postgresai/extended-postgres:16
-
-# Load the Pagila dataset
-docker exec -i pagila psql -U postgres -c "CREATE DATABASE pagila;"
-curl -sL https://raw.githubusercontent.com/devrimgunduz/pagila/master/pagila-schema.sql | docker exec -i pagila psql -U postgres -d pagila
-curl -sL https://raw.githubusercontent.com/devrimgunduz/pagila/master/pagila-data.sql | docker exec -i pagila psql -U postgres -d pagila
-```
-
-Then connect with: host `localhost`, port `5432`, database `pagila`, user `postgres`, password `postgres`.
-
-Try asking: _"What are the top 10 most rented films and their total revenue?"_
-
-### ClickHouse
-
-**Connection fields:**
-
-| Field    | Example               | Notes                      |
-| -------- | --------------------- | -------------------------- |
-| Host     | `play.clickhouse.com` | Hostname or IP             |
-| Port     | `443`                 | 8123 (HTTP) or 443 (HTTPS) |
-| Database | `default`             |                            |
-| User     | `play`                |                            |
-| Password |                       | Leave empty for playground |
-| SSL      | checked               | Required for port 443      |
-
-**Environment variables** (optional):
-
-```bash
-WAREHOUSE_TYPE=clickhouse
-WAREHOUSE_CH_HOST=play.clickhouse.com
-WAREHOUSE_CH_PORT=443
-WAREHOUSE_CH_DATABASE=default
-WAREHOUSE_CH_USER=play
-WAREHOUSE_CH_PASSWORD=
-WAREHOUSE_CH_SSL=true
-```
-
-**Free sample dataset — ClickHouse Playground:**
-
-No setup needed. Connect to `play.clickhouse.com` (port `443`, user `play`, no password, SSL on). This public playground has dozens of pre-loaded datasets:
-
-| Table                            | Description              | Rows   |
-| -------------------------------- | ------------------------ | ------ |
-| `uk_price_paid`                  | UK property transactions | 28M+   |
-| `trips`                          | NYC taxi trips           | 3B+    |
-| `cell_towers`                    | OpenCellID cell towers   | 43M+   |
-| `dns`                            | DNS query logs           | 1M+    |
-| `github_events`                  | GitHub event stream      | 200M+  |
-| `stock`                          | Daily stock prices       | varies |
-| `menu`, `menu_page`, `menu_item` | NYC restaurant menus     | varies |
-| `opensky`                        | Flight tracking data     | 60M+   |
-
-Try asking: _"Show the average property price trend by year in London"_ (against `uk_price_paid`)
-
-### BigQuery
-
-**Connection fields:**
-
-| Field                | Example                              | Notes                                     |
-| -------------------- | ------------------------------------ | ----------------------------------------- |
-| Project ID           | `my-gcp-project`                     | Your GCP project (for billing)            |
-| Dataset              | `bigquery-public-data.stackoverflow` | Use `project.dataset` for public datasets |
-| Service Account JSON | `{ "type": "service_account", ... }` | Paste JSON key or path to `.json` file    |
-
-**Environment variables** (optional):
-
-```bash
-WAREHOUSE_TYPE=bigquery
-WAREHOUSE_BQ_PROJECT=my-gcp-project
-WAREHOUSE_BQ_DATASET=bigquery-public-data.stackoverflow
-WAREHOUSE_BQ_CREDENTIALS_JSON=/path/to/service-account.json
-```
-
-**Setup (5 minutes):**
-
-1. Create a GCP project at [console.cloud.google.com](https://console.cloud.google.com) (free tier, no credit card for public datasets)
-2. Go to **IAM & Admin > Service Accounts** > Create service account
-3. Grant roles: **BigQuery Job User** + **BigQuery Data Viewer**
-4. **Keys** > Add Key > Create new key > JSON — download the file
-5. In Hermetic, enter your project ID, dataset, and paste the JSON key
-
-**Free public datasets** (no data to load — already available):
-
-| Dataset                                        | Description            |
-| ---------------------------------------------- | ---------------------- |
-| `bigquery-public-data.stackoverflow`           | Stack Overflow posts   |
-| `bigquery-public-data.github_repos`            | GitHub repository data |
-| `bigquery-public-data.austin_crime`            | Austin crime reports   |
-| `bigquery-public-data.chicago_taxi_trips`      | Chicago taxi data      |
-| `bigquery-public-data.usa_names`               | US baby names by year  |
-| `bigquery-public-data.new_york_subway`         | NYC subway ridership   |
-| `bigquery-public-data.google_analytics_sample` | GA web analytics       |
-
-Enter the dataset as `bigquery-public-data.stackoverflow` (the `project.dataset` format tells Hermetic to query from that project while billing your project).
-
-Try asking: _"What are the most popular programming language tags by year?"_
-
-### Snowflake
-
-**Connection fields:**
-
-| Field     | Example             | Notes                             |
-| --------- | ------------------- | --------------------------------- |
-| Account   | `xy12345.us-east-1` | Your Snowflake account identifier |
-| Username  | `analyst`           |                                   |
-| Password  |                     | Or use key-pair auth              |
-| Warehouse | `COMPUTE_WH`        |                                   |
-| Database  | `ANALYTICS`         |                                   |
-| Schema    | `PUBLIC`            |                                   |
-| Role      | `ANALYST_ROLE`      | Optional                          |
-
-### Databricks
-
-**Connection fields:**
-
-| Field           | Example                            | Notes                                     |
-| --------------- | ---------------------------------- | ----------------------------------------- |
-| Server hostname | `abc-1234.cloud.databricks.com`    | Your workspace host                       |
-| HTTP path       | `/sql/1.0/warehouses/abc123def456` | From the SQL warehouse connection details |
-| Access token    | `dapi…`                            | Personal access token                     |
-| Catalog         | `main`                             |                                           |
-| Schema          | `default`                          |                                           |
-
-### Trino / Hive
-
-Both have inline connection forms with host, port, catalog/database, and credentials. Trino works with Starburst and any Trino-compatible engine.
+Per-engine connection fields and local test setups (PostgreSQL, ClickHouse, BigQuery, Snowflake, Databricks, Trino / Hive): [docs/warehouses.md](docs/warehouses.md).
 
 ## Parquet and Local Files
 
 Point Hermetic at a Parquet file or a Hive-partitioned folder on your local disk and analyze it without uploading.
 
-Click the **Browse local files** entry on the home screen, navigate to the file or folder, and pick it. The file is bind-mounted into the sandbox (zero-copy — no upload, no conversion). DuckDB extracts schema and statistics; for queries over ~1M rows, aggregation is pushed into DuckDB SQL before any pandas code runs.
+Click the **Browse local files** entry on the home screen, navigate to the file or folder, and pick it. With Docker the file is bind-mounted into the sandbox (zero-copy — no upload, no conversion); the desktop app's WebAssembly sandbox converts it host-side and delivers it instead. DuckDB extracts schema and statistics; for queries over ~1M rows, aggregation is pushed into DuckDB SQL before any pandas code runs.
 
 Hive-partitioned folders (e.g. `year=2024/month=01/...`) are detected as a single dataset; partition columns appear in the schema alongside the file columns.
 
@@ -571,8 +375,8 @@ src/
     skills/             Skill system: triggers, guidance, review rules, helpers (docs/creating-skills.md)
     pipeline/           Orchestration: Ask/Investigate runners, retry loops, review gate,
                         patch streaming, run control, grounding verification, audit, caches
-    sandbox/            Execution: Docker (only enforced runtime; E2B/Microsandbox scaffolding retained, experimental/unwired), capability descriptors,
-                        egress allowlist (CI-proven exfiltration canary), lifecycle
+    sandbox/            Execution: Docker and the wasm tier (Pyodide + DuckDB-WASM), per-runtime
+                        capability descriptors, egress allowlist (CI-proven exfiltration canary), lifecycle
     export/             Single-file HTML export assembler
     history/, saved/, cost/, diagnostics/   Persistence, scheduling, cost capture, run records
   cli/                  CLI harness (ask, render) — the architecture canary, runs in CI
@@ -643,20 +447,32 @@ scripts/release.sh 0.2.0         # One-command release (bump, tag, push → CI r
 
 CI pins behavior, not just types: **golden transcripts** replay the three core journeys (ask, follow-up, investigate) byte-for-byte against committed LLM fixtures — fully offline, real server, real Docker sandbox — so any refactor that changes the user-visible stream fails loudly. On a golden failure the CI artifact carries the exact request bytes (`*.hit.json`/`*.miss.json`) to diff against a local capture. The same job proves the CLI and MCP harnesses run framework-free, and runs the **egress allowlist proof** — real containers on a real internal network, with an exfiltration canary that must stay silent.
 
+What this does **not** prove: goldens replay recorded LLM responses, so they catch a refactor that changes behavior, not whether answers are right across models, providers, or datasets. The retry, warehouse, rerun, reattach, and history journeys are not recorded yet (see `scripts/golden/run-journeys.mjs`). Live warehouse tests and some WASM cases are opt-in, and the coverage thresholds in `vitest.config.ts` are floors, not a completeness claim. Answer quality is checked per run instead, by the lint battery, the Verify panel, and the audit.
+
 ### Releases
 
 Tags drive releases: `scripts/release.sh <version>` bumps `package.json` **and `src-tauri/tauri.conf.json5`** (the desktop app's version must move with the tag — see the runbook), tags `v<version>`, and pushes; CI then gates (lint, types, full suite, build), pushes the sandbox image to `ghcr.io/achalp/hermetic-sandbox` (prereleases never move `:latest`), and publishes a GitHub Release with generated notes, the `hermetic.mcpb` bundle, desktop bundles for Linux/macOS/Windows (updater-signed; macOS also Developer-ID signed + notarized, Windows not yet OS-signed), and the `latest.json` auto-update manifest attached.
 
 **Full procedure — including the rc-first workflow, what to verify, signing-key custody, and failure recovery: [`ops/RELEASE.md`](ops/RELEASE.md).** Cut a `-rc.N` prerelease first: it exercises the whole pipeline while staying invisible to every installed app (GitHub's `/releases/latest` excludes prereleases, and that URL is what the updater polls).
 
-## Sandbox Runtime
+## Sandbox runtimes
 
-Hermetic executes LLM-generated Python code in an isolated **Docker** container — the only supported runtime. (E2B and Microsandbox were removed: neither can enforce `--network none`, and a sandbox that can't guarantee network isolation with your data inside it isn't a sandbox.) Requirements: [Docker Desktop](https://www.docker.com/products/docker-desktop/) or a native Docker engine.
+Generated code runs in one of two sandboxes. They share one Python statistical runtime and one output contract, but not one trust boundary, so each is held to the capabilities it declares (`src/lib/sandbox/capabilities.ts`). A run that needs something the active runtime can't enforce is rejected, never silently degraded. E2B and Microsandbox were removed because they could not enforce `--network none`.
 
-- Local-data runs execute with **networking denied outright**; remote-data runs get a deny-by-default egress allowlist enforced by a gateway proxy on an internal Docker network — proven in CI by an exfiltration canary, and compatible with modern Docker (≥ 28) engines.
-- Containers run hardened: non-root, `--cap-drop ALL`, pids/memory limits derived from the Docker daemon's real allocation.
-- The image is published per release as `ghcr.io/achalp/hermetic-sandbox` and built locally by `start.sh` otherwise.
-- A **warm container** is kept per data source, cutting per-run staging overhead to ~a third (unchanged runtime files are skipped via an exit-code-verified hash set).
+|                          | **Docker**                                                                        | **WebAssembly (built-in)**                                                                                                                                                                                                                                                               |
+| ------------------------ | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Used by                  | Web app (`./start.sh`), desktop app, CLI, MCP server, `.mcpb`                     | Desktop app and web app (it runs in the browser tab or app window); not the CLI or MCP server, which have no browser                                                                                                                                                                     |
+| Engine                   | CPython with pandas, numpy, scipy, scikit-learn, DuckDB                           | Pyodide (CPython on WASM) + DuckDB-WASM in a browser worker; only packages with a Pyodide wheel, only vendored DuckDB extensions                                                                                                                                                         |
+| Local data, network      | `--network none`                                                                  | The worker's content security policy allows no off-machine host; its only reachable origin is the app itself                                                                                                                                                                             |
+| Remote data (S3 / HTTPS) | Fresh container on an internal network behind a deny-by-default allowlist proxy   | The worker never touches the network: the host fetches through the Rust egress core against the same source-derived allowlist, then delivers the data                                                                                                                                    |
+| Filesystem               | No host filesystem; local Parquet bind-mounted read-only                          | None; inputs are delivered into the worker's in-memory filesystem                                                                                                                                                                                                                        |
+| Large data               | Bind-mounted Parquet, DuckDB pushdown, memory watchdog, warm container per source | Parquet converted host-side and delivered, bounded by browser memory; materialized warehouse pulls need Docker; no warm pool                                                                                                                                                             |
+| How it's proven          | CI exfiltration canary: real containers on a real internal network                | CI escape suite in real Chromium: every egress vector from a CSP-locked worker, zero requests received                                                                                                                                                                                   |
+| Known gap                | —                                                                                 | The escape suite proves the strict policy (`connect-src 'none'`). The shipped policy allows the app's own local origin so Pyodide can load its bundled assets, which means untrusted code can reach the app's local `/api` routes. Nothing leaves the machine; hardening this is tracked |
+
+Choose a runtime in **Settings**. Without a choice, Hermetic uses Docker when a daemon is available and the WebAssembly sandbox when it isn't; a fresh desktop install starts on WebAssembly until that check has run.
+
+**Docker details.** Containers run hardened: non-root, `--cap-drop ALL`, pids/memory limits derived from the Docker daemon's real allocation. Remote-data egress works on modern Docker (≥ 28) engines. The image is published per release as `ghcr.io/achalp/hermetic-sandbox` and built locally by `start.sh` otherwise. The warm container cuts per-run staging overhead to about a third (unchanged runtime files are skipped via an exit-code-verified hash set). Requirements: [Docker Desktop](https://www.docker.com/products/docker-desktop/) or a native Docker engine.
 
 ## Configuration
 
@@ -713,115 +529,11 @@ When Ollama is activated in Settings, it takes priority over cloud providers. De
 
 ### Sandbox Runtime
 
-| Variable          | Required | Default  | Description                                                                |
-| ----------------- | -------- | -------- | -------------------------------------------------------------------------- |
-| `SANDBOX_RUNTIME` | No       | `docker` | Sandbox runtime. **Docker is the only enforced runtime** — see note below. |
-
-> **Experimental runtimes.** E2B and Microsandbox scaffolding (and the
-> `@e2b/code-interpreter` / `microsandbox` dependencies) are retained but
-> **not currently wired or tested**, and cannot be selected: `SANDBOX_RUNTIME`
-> resolves to `docker` regardless. Docker is enforced because it is the only
-> runtime that can guarantee `--network none` network isolation with your data
-> inside the container — the core of the sandbox's security model. A stale
-> `SANDBOX_RUNTIME=e2b`/`microsandbox` (and the old `E2B_API_KEY` /
-> `MICROSANDBOX_*` variables) is ignored rather than silently degrading that
-> guarantee.
+The runtime is chosen in **Settings** (stored in `data/runtime-config.json`); see [Sandbox runtimes](#sandbox-runtimes). `SANDBOX_RUNTIME` is a legacy variable: it only ever selected among container backends, and Docker is the only one left, so a stale `SANDBOX_RUNTIME=e2b`/`microsandbox` (and the old `E2B_API_KEY` / `MICROSANDBOX_*` variables) is ignored rather than weakening isolation.
 
 ## Components
 
-### Charts
-
-| Component           | Purpose                                | Library    |
-| ------------------- | -------------------------------------- | ---------- |
-| BarChart            | Categorical comparisons                | Nivo       |
-| LineChart           | Trends over time                       | Nivo       |
-| AreaChart           | Trends with volume                     | Nivo       |
-| PieChart            | Part-of-whole composition              | Nivo       |
-| ScatterChart        | Correlation between variables          | Nivo       |
-| RadarChart          | Multivariate comparison                | Nivo       |
-| BumpChart           | Ranking changes over time              | Nivo       |
-| ChordChart          | Flow between categories                | Nivo       |
-| SunburstChart       | Hierarchical composition               | Nivo       |
-| TreemapChart        | Hierarchical proportions               | Nivo       |
-| SankeyChart         | Flow quantities between nodes          | Nivo       |
-| MarimekkoChart      | Two-dimensional composition            | Nivo       |
-| CalendarChart       | Values over calendar days              | Nivo       |
-| StreamChart         | Stacked trends over time               | Nivo       |
-| Histogram           | Value distribution                     | Plotly     |
-| BoxPlot             | Statistical distribution               | Plotly     |
-| HeatMap             | Matrix of values by color              | Plotly     |
-| ViolinChart         | Distribution shape comparison          | Plotly     |
-| CandlestickChart    | OHLC financial data                    | Plotly     |
-| WaterfallChart      | Cumulative value changes               | Plotly     |
-| RidgelineChart      | Overlapping distributions              | Plotly     |
-| DumbbellChart       | Range between two values               | Plotly     |
-| SlopeChart          | Change between two points              | Plotly     |
-| BeeswarmChart       | Distribution with individual points    | Plotly     |
-| ShapBeeswarm        | SHAP feature importance                | Plotly     |
-| ConfusionMatrix     | Classification performance             | Plotly     |
-| RocCurve            | Binary classifier performance          | Plotly     |
-| ParallelCoordinates | Multivariate patterns                  | Custom SVG |
-| BulletChart         | Progress toward a target               | Custom SVG |
-| DecisionTree        | Tree model visualization               | Custom SVG |
-| ErrorBarChart       | Points/bars with confidence intervals  | Plotly     |
-| DualAxisChart       | Two measures on independent y-axes     | Plotly     |
-| FunnelChart         | Sequential conversion / drop-off       | Plotly     |
-| GaugeChart          | Single KPI against a scale             | Plotly     |
-| Sparkline           | Compact inline trend                   | Custom SVG |
-| ParetoChart         | 80/20 — sorted bars + cumulative %     | Plotly     |
-| QQPlot              | Normality check vs. quantiles          | Plotly     |
-| ECDFChart           | Empirical cumulative distribution      | Plotly     |
-| SurvivalChart       | Kaplan–Meier survival curves           | Plotly     |
-| ForestPlot          | Effect sizes with confidence intervals | Plotly     |
-| ControlChart        | SPC chart with control limits          | Plotly     |
-| Correlogram         | ACF / PACF autocorrelation             | Plotly     |
-| CalibrationCurve    | Classifier reliability diagram         | Plotly     |
-| LiftChart           | Lift / cumulative gain                 | Plotly     |
-| PartialDependence   | Model PDP / ICE curves                 | Plotly     |
-| Dendrogram          | Hierarchical clustering tree           | Plotly     |
-| SilhouettePlot      | Clustering quality by cluster          | Plotly     |
-| NetworkGraph        | Node-link relationships                | Plotly     |
-| ContourChart        | 2D density / scalar field              | Plotly     |
-| TernaryChart        | Three-part compositional data          | Plotly     |
-| PopulationPyramid   | Back-to-back category comparison       | Plotly     |
-| GanttChart          | Task timelines on a date axis          | Plotly     |
-| CohortGrid          | Retention matrix by cohort × period    | Plotly     |
-| QuiverChart         | Vector / flow field                    | Plotly     |
-| WindRose            | Polar histogram by direction           | Plotly     |
-
-### 3D and Geospatial
-
-| Component | Purpose                                       | Library        |
-| --------- | --------------------------------------------- | -------------- |
-| Scatter3D | 3D point clouds                               | Plotly         |
-| Surface3D | 3D surface plots                              | Plotly         |
-| Globe3D   | Points and arcs on a 3D globe                 | react-globe.gl |
-| Map3D     | Hexagon, column, arc, scatter, heatmap layers | deck.gl        |
-| MapView   | Markers and GeoJSON polygons on a 2D map      | MapLibre GL    |
-
-### Display
-
-| Component      | Purpose                               | Library        |
-| -------------- | ------------------------------------- | -------------- |
-| StatCard       | Single KPI with trend                 | Custom         |
-| TextBlock      | Markdown or plain text                | Custom         |
-| SectionBreak   | Visual section divider                | Custom         |
-| Annotation     | Contextual notes                      | Custom         |
-| TrendIndicator | Directional change indicator          | Custom         |
-| DataTable      | Sortable, filterable, paginated table | TanStack Table |
-| PivotTable     | Sort, drill, cross-filter, heatmap    | Custom         |
-| ChartImage     | Rendered image from sandbox           | Custom         |
-| DataController | Client-side cross-filtering           | Custom         |
-
-### Inputs
-
-| Component     | Purpose                        | Library |
-| ------------- | ------------------------------ | ------- |
-| SelectControl | Dropdown select                | Custom  |
-| NumberInput   | Numeric input with constraints | Custom  |
-| ToggleSwitch  | Boolean toggle                 | Custom  |
-| TextInput     | Single-line text input         | Custom  |
-| TextArea      | Multi-line text input          | Custom  |
+57 chart types, 3D and geospatial views, display elements, and inputs. The full catalog, with the library behind each, is in [docs/components.md](docs/components.md).
 
 ## Tech Stack
 
@@ -874,10 +586,8 @@ When Ollama is activated in Settings, it takes priority over cloud providers. De
 
 **Sandbox runtime**
 
-- [Docker](https://www.docker.com/) for local container execution — the only
-  supported runtime (it alone can enforce `--network none`). E2B/Microsandbox
-  scaffolding is retained but unwired and experimental; see the "Experimental
-  runtimes" note above.
+- [Docker](https://www.docker.com/) for container execution (web app, CLI, MCP)
+- [Pyodide](https://pyodide.org/) + [DuckDB-WASM](https://duckdb.org/docs/api/wasm/overview) for the desktop app's built-in sandbox, inside a [Tauri](https://tauri.app/) shell
 
 **Development**
 
