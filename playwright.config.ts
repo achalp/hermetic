@@ -6,6 +6,8 @@ import { defineConfig, devices } from "@playwright/test";
 // tests need no running server. Run: pnpm test:e2e.
 export default defineConfig({
   testDir: "./e2e",
+  // e2e/journey needs a running server — its own config (playwright.journey.config.ts).
+  testIgnore: "journey/**",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
