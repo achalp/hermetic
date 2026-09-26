@@ -224,6 +224,11 @@ jobs:
         env:
           ANTHROPIC_API_KEY: test-key-replay-only
 
+      # For the browser journey (e2e/journey), which reuses the replay server
+      # and sandbox started below.
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+
       - name: Start server (replay mode) and check journeys
         env:
           HERMETIC_LLM_MODE: replay
@@ -239,6 +244,9 @@ jobs:
             sleep 2
           done
           node scripts/golden/run-journeys.mjs check
+          # The same journey through the real UI: upload → ask → rendered
+          # dashboard, against this replay server (e2e/journey/ask-upload.spec.ts).
+          pnpm test:e2e:journey
 
       - name: CLI harness proof (offline, no server)
         env:
@@ -286,6 +294,7 @@ jobs:
             test-fixtures/llm/*.miss.json
             test-fixtures/llm/*.hit.json
             test-fixtures/golden/*.received.ndjson
+            test-results/
           if-no-files-found: ignore
 
   # Dependency vulnerability gate. This is DIFF-BASED on purpose: it fails a PR

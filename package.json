@@ -49,6 +49,7 @@
     "mcpb:build": "node scripts/build-mcp-viewer.mjs && tsx scripts/build-mcpb.mjs",
     "mcpb:smoke": "tsx scripts/mcpb-smoke.mjs",
     "test:e2e": "tsx scripts/e2e-build-fixture.mts && playwright test",
+    "test:e2e:journey": "playwright test -c playwright.journey.config.ts",
     "desktop:sidecar": "node scripts/build-desktop-sidecar.mjs",
     "desktop:dev": "tauri dev",
     "desktop:build": "node scripts/build-desktop.mjs",
