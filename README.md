@@ -64,7 +64,7 @@ The compiled path is walked through block by block, with what each output style 
 
 | Sent to the model                                                                                                        | When                                       |
 | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------ |
-| Column names, types, row count, null counts, correlations                                                                | Always                                     |
+| File name, column names, types, row count, null counts, correlations                                                     | Always                                     |
 | Numeric min/max/mean/percentiles; date ranges                                                                            | Always                                     |
 | Categorical labels: all of them if a column has ≤ 30 distinct values, else the 10 most frequent that repeat, with counts | Always — except identifier-like columns    |
 | Identifier-like columns (every value unique, or an email / phone / UUID / IP pattern): distinct count and pattern only   | Values are **never** sent                  |
@@ -74,7 +74,11 @@ The compiled path is walked through block by block, with what each output style 
 | 5 real sample rows and per-column sample values                                                                          | Only in **sample** schema mode (opt-in)    |
 | Warehouse rows returned by MCP `run_sql` (default 200, max 1,000)                                                        | Only when an MCP host model calls it       |
 
-Two things to know: a column with ≤ 30 distinct values lists every label even in a small file, which is how the model learns a dimension's categories; and a warehouse connection sends table and column names (plus dbt descriptions if present) to generate SQL. If a label itself is sensitive, treat it as sent.
+Two things to know: a column with ≤ 30 distinct values lists every label even in a small file, which is how the model learns a dimension's categories; and a warehouse connection sends table and column names (plus dbt descriptions if present) to generate SQL. There is no mode that withholds category labels: without them the model cannot write an exact filter like `plan == "Pro"`. If the labels themselves are sensitive, treat them as sent, and use a local model.
+
+**Who receives it** depends on the provider you pick. With a local model (MLX, llama.cpp, Ollama) nothing above leaves your machine, and Hermetic runs offline apart from map tiles (OpenFreeMap), the desktop app's update check (GitHub Releases), model downloads you start, and remote data sources you connect. With a cloud API (Anthropic, Bedrock, Vertex, an OpenAI-compatible endpoint) or the Claude CLI, the rows marked above go to that provider under its terms. Hermetic has no telemetry of its own.
+
+**What stays on your machine**, under the data directory (`data/` in a checkout; the app-data directory for the desktop app): analysis history with generated code and computed results (`history/`), per-run journals and diagnostics (`runs/`, `diagnostics/`), cost logs (`cost/`), saved dashboards, the MCP audit log (`mcp-audit.jsonl`), and learning exemplars from past runs (`learning/`). Uploaded files are staged in a scratch directory under the OS temp dir and evicted when idle. `retention` in `data/runtime-config.json` caps history and run records. An exported HTML dashboard contains the data it shows, by design, so share it like the data.
 
 ## Quick Start
 
@@ -594,6 +598,16 @@ The runtime is chosen in **Settings** (stored in `data/runtime-config.json`); se
 - TypeScript 5, ESLint 9, Prettier, Husky, lint-staged
 - [Vitest](https://vitest.dev/) with Testing Library for unit tests
 - [@next/bundle-analyzer](https://www.npmjs.com/package/@next/bundle-analyzer) for bundle analysis
+
+## Known limitations
+
+- **Category labels reach the model.** Identifier-like columns are withheld, but every other label can be sent (see [What the model sees](#what-the-model-sees)). Use a local model if that matters.
+- **The WebAssembly sandbox has a documented gap:** untrusted code can reach the app's own local `/api` routes (nothing leaves the machine). See [Sandbox runtimes](#sandbox-runtimes).
+- **Tests pin behavior, not answer quality.** The goldens replay recorded model responses; there is no public benchmark of analysis correctness yet. Each run's lint battery, Verify panel, and on-demand audit are the per-answer checks.
+- **Windows builds are not code-signed** (updater-signed only), so SmartScreen warns on first open.
+- **Snowflake results are buffered**, not streamed like the other warehouses, so a very wide result is capped rather than streamed.
+- **The CLI and MCP server need Docker**; only the web and desktop apps can use the WebAssembly sandbox.
+- **One maintainer.** Support is best-effort ([CONTRIBUTING.md](CONTRIBUTING.md#reporting-issues)); security reports go through [SECURITY.md](SECURITY.md).
 
 ## Contributing
 
