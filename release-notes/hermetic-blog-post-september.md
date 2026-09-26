@@ -1,6 +1,6 @@
 # Hermetic in September: catalogs, a desktop app, and a server for your agent
 
-Hermetic is an open-source, local-first AI data analyst that follows one principle: the model writes the analysis code, but it never sees your data. I build it in public.
+Hermetic is an open-source, local-first AI data analyst that follows one principle: the model writes the analysis code, but it never sees your rows. I build it in public.
 
 My last post was in July. Two months of work has landed since then. Here is what shipped.
 
@@ -32,7 +32,7 @@ The security rule does not change. Analysis code runs inside a locked worker. It
 
 ## Hermetic works with the desktop agent of your choice
 
-Hermetic is now an MCP server. One file — `hermetic.mcpb', and any agent that speaks the Model Context Protocol can use Hermetic as its analysis room. Your agent asks the questions. Your data stays home. The dashboard is persisted and outlives the chat.
+Hermetic is now an MCP server. One file, `hermetic.mcpb`, installs it into Claude Desktop with a double click, and any agent that speaks the Model Context Protocol can use Hermetic as its analysis room. Your agent asks the questions. Your data stays home. The dashboard is persisted and outlives the chat.
 
 One honest limit: the MCP server runs analysis in the Docker sandbox. The browser-based runtime from the last section belongs to the desktop app, because that sandbox is literally a browser's.
 
