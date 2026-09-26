@@ -3,18 +3,8 @@
   "version": "1.0",
   "name": "hermetic-blog-post-september",
   "storageType": "adjacent",
-  "rootPath": "/home/achal/dev/hermetic/release-notes/.flow_hermetic-blog-post-september",
-  "mainFile": "../hermetic-blog-post-september.md",
+  "mainFile": "../media-september/hermetic-blog-post-september.md",
   "files": [
-    {
-      "id": "file_1789518456865_3co9p5",
-      "path": "hermetic-blog-post-august.md",
-      "type": "markdown",
-      "role": "include",
-      "size": 10239,
-      "modifiedAt": "2026-09-16T00:27:36.865Z",
-      "addedBy": "system"
-    },
     {
       "id": "file_1789518456865_pwzd1c",
       "path": "hermetic-blog-post-july.md",
@@ -79,15 +69,6 @@
       "addedBy": "system"
     },
     {
-      "id": "file_1789518456865_mmvq40",
-      "path": "hermetic-blog-post-september.md",
-      "type": "markdown",
-      "role": "main",
-      "size": 8547,
-      "modifiedAt": "2026-09-16T00:27:36.865Z",
-      "addedBy": "system"
-    },
-    {
       "id": "file_1789518456865_vff2hr",
       "path": "hermetic-linkedin-post-july.md",
       "type": "markdown",
@@ -97,12 +78,129 @@
       "addedBy": "system"
     },
     {
-      "id": "file_1789518456865_oczzhz",
+      "id": "file_1789607343416_5ses5i",
+      "path": "media-september/hermetic-blog-post-september.md",
+      "type": "markdown",
+      "role": "asset",
+      "size": 0,
+      "modifiedAt": "2026-09-17T20:21:15.039Z",
+      "addedBy": "system"
+    },
+    {
+      "id": "file_1789607343416_v1f933",
       "path": "hermetic-linkedin-post-september.md",
       "type": "markdown",
-      "role": "include",
-      "size": 1898,
-      "modifiedAt": "2026-09-16T00:27:36.865Z",
+      "role": "asset",
+      "size": 0,
+      "modifiedAt": "2026-09-17T01:09:03.416Z",
+      "addedBy": "system"
+    },
+    {
+      "id": "file_1789607343416_nf6qdi",
+      "path": "media-september/hermetic-ask-catalog-dashboard.mp4",
+      "type": "other",
+      "role": "asset",
+      "size": 0,
+      "modifiedAt": "2026-09-17T01:09:03.416Z",
+      "addedBy": "system"
+    },
+    {
+      "id": "file_1789607343416_yi4o62",
+      "path": "media-september/hermetic-connect-catalog.gif",
+      "type": "image",
+      "role": "asset",
+      "size": 0,
+      "modifiedAt": "2026-09-17T01:09:03.416Z",
+      "addedBy": "system"
+    },
+    {
+      "id": "file_1789607343416_57upvs",
+      "path": "media-september/hermetic-connect-catalog.mp4",
+      "type": "other",
+      "role": "asset",
+      "size": 0,
+      "modifiedAt": "2026-09-17T01:09:03.416Z",
+      "addedBy": "system"
+    },
+    {
+      "id": "file_1789607343416_fjfioo",
+      "path": "media-september/hermetic-overture-heatmap.mp4",
+      "type": "other",
+      "role": "asset",
+      "size": 0,
+      "modifiedAt": "2026-09-17T01:09:03.416Z",
+      "addedBy": "system"
+    },
+    {
+      "id": "file_1789607343416_q3e14d",
+      "path": "media-september/hermetic-overture-stac-map.mp4",
+      "type": "other",
+      "role": "asset",
+      "size": 0,
+      "modifiedAt": "2026-09-17T01:09:03.416Z",
+      "addedBy": "system"
+    },
+    {
+      "id": "file_1789607343416_pqzqab",
+      "path": "media-september/still-overture-pins-map.jpg",
+      "type": "image",
+      "role": "asset",
+      "size": 0,
+      "modifiedAt": "2026-09-17T01:09:03.416Z",
+      "addedBy": "system"
+    },
+    {
+      "id": "file_1789607343416_416u8q",
+      "path": "media-september/still-generative-report-filters.jpg",
+      "type": "image",
+      "role": "asset",
+      "size": 0,
+      "modifiedAt": "2026-09-17T01:09:03.416Z",
+      "addedBy": "system"
+    },
+    {
+      "id": "file_1789607343416_sjwaky",
+      "path": "media-september/still-housing-gap-dashboard.jpg",
+      "type": "image",
+      "role": "asset",
+      "size": 0,
+      "modifiedAt": "2026-09-17T01:09:03.416Z",
+      "addedBy": "system"
+    },
+    {
+      "id": "file_1789607343416_mggxtj",
+      "path": "media-september/still-overture-maps-checks.jpg",
+      "type": "image",
+      "role": "asset",
+      "size": 0,
+      "modifiedAt": "2026-09-17T01:09:03.416Z",
+      "addedBy": "system"
+    },
+    {
+      "id": "file_1789607343416_nneeig",
+      "path": "media-september/hermetic-ask-catalog-dashboard.gif",
+      "type": "image",
+      "role": "asset",
+      "size": 0,
+      "modifiedAt": "2026-09-17T01:09:03.416Z",
+      "addedBy": "system"
+    },
+    {
+      "id": "file_1789607343416_zz786r",
+      "path": "media-september/hermetic-overture-heatmap.gif",
+      "type": "image",
+      "role": "asset",
+      "size": 0,
+      "modifiedAt": "2026-09-17T01:09:03.416Z",
+      "addedBy": "system"
+    },
+    {
+      "id": "file_1789607343416_u70qmo",
+      "path": "media-september/hermetic-overture-stac-map.gif",
+      "type": "image",
+      "role": "asset",
+      "size": 0,
+      "modifiedAt": "2026-09-17T01:09:03.416Z",
       "addedBy": "system"
     }
   ],
@@ -117,5 +215,6 @@
     "styleFolder": "styles"
   },
   "createdAt": "2026-09-16T00:27:36.864Z",
-  "modifiedAt": "2026-09-16T00:27:36.865Z"
+  "modifiedAt": "2026-09-17T20:21:15.041Z",
+  "rootPath": "/home/achal/dev/hermetic/release-notes/.flow_hermetic-blog-post-september"
 }
