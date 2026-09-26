@@ -117,8 +117,10 @@ export function validateEnv(): EnvConfig {
   }
 
   // --- Sandbox runtime validation ---
-  // Docker is the only runtime; a stale SANDBOX_RUNTIME=e2b/microsandbox is
-  // ignored (those were removed) rather than a hard error, so existing envs boot.
+  // SANDBOX_RUNTIME only ever selected among env-driven backends, and Docker is
+  // the only one left: a stale SANDBOX_RUNTIME=e2b/microsandbox is ignored (those
+  // were removed) rather than a hard error, so existing envs boot. The wasm tier
+  // is chosen by runtime config (lib/runtime-config.ts getActiveSandboxRuntime).
   const runtime = "docker" as const;
 
   cachedConfig = {

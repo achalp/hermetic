@@ -86,6 +86,13 @@ src/
 - Use GitHub Issues for bug reports and feature requests
 - Include steps to reproduce for bugs
 - Include the browser, OS, and Node.js version
+- For a wrong answer, include the run id: `data/runs/<id>/journal.jsonl` and the
+  Verify panel's JSON export let someone replay what the model saw and did
+
+**What to expect.** Hermetic has one maintainer. Issues are triaged on a
+best-effort basis, usually within a week: a bug with a reproduction or a run id
+gets priority, and a question may be answered by a docs change instead. Security
+reports go through [SECURITY.md](SECURITY.md), not public issues.
 
 ## Pull Request Guidelines
 

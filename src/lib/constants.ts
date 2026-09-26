@@ -173,15 +173,14 @@ export const MODEL_PRICING: Record<string, ModelPrice> = {
   "claude-haiku-4-5-20251001": { input: 1, output: 5, cacheWrite: 2, cacheRead: 0.1 },
 };
 
-// Docker is the only sandbox runtime. E2B and microsandbox were removed after
-// the M3 network-isolation decision made them reject every local-data run (they
-// can't enforce --network none) — see PR #108 and the cloud-sandbox removal.
-// Docker is the ONLY selectable runtime — the only one that can enforce
-// --network none (the sandbox's security model). The @e2b/code-interpreter and
-// microsandbox DEPS were removed 2026-09 (knip found them dead); a stale
-// SANDBOX_RUNTIME=e2b still resolves to docker (lib/config.ts). Wiring a
-// cloud backend back would require re-adding one that preserves the
-// isolation guarantee.
+// Two runtimes: Docker (--network none / egress allowlist) and the wasm tier
+// (Pyodide in the desktop webview worker, isolated by its exec CSP — see
+// sandbox/capabilities.ts for what each can enforce). E2B and microsandbox were
+// removed after the M3 network-isolation decision made them reject every
+// local-data run (they can't enforce --network none) — see PR #108; their deps
+// went 2026-09 (knip found them dead), and a stale SANDBOX_RUNTIME=e2b resolves
+// to docker (lib/config.ts). Adding a runtime back means declaring capabilities
+// that preserve the isolation guarantee.
 export const AVAILABLE_RUNTIMES = [
   { id: "docker", label: "Docker (Local)" },
   { id: "wasm", label: "Built-in (WASM · no Docker)" },

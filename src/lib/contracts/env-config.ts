@@ -26,7 +26,8 @@ export const ENV_CONFIG_KEYS = [
   "AWS_REGION",
   "GOOGLE_VERTEX_PROJECT",
   "GOOGLE_VERTEX_LOCATION",
-  // Sandbox (Docker only — E2B/microsandbox removed)
+  // Sandbox (E2B/microsandbox removed; the wasm tier is selected via runtime
+  // config / HERMETIC_FORCE_RUNTIME, not this variable — lib/config.ts)
   "SANDBOX_RUNTIME",
   "SANDBOX_MEMORY_FRACTION",
   // Warehouse env presets

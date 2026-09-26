@@ -13,10 +13,12 @@
  *
  * The repair is deliberately NOT a fabricated statistic: an unreadable column
  * becomes the `unprofiled` variant, which says "nothing was measured here" out
- * loud. Healing is identity for a valid schema, so it is safe to apply wherever
- * a schema enters typed code.
+ * loud. Healing is identity for a valid schema whose columns are not
+ * identifier-like (see healColumnMeta), so it is safe to apply wherever a schema
+ * enters typed code.
  */
 import type { CSVSchema, CSVColumn, ColumnMeta, UnprofiledMeta } from "@/lib/contracts/data-schema";
+import { withholdIdentifierValues } from "./value-exposure";
 
 const VALID_KINDS = new Set(["number", "date", "categorical", "boolean", "unprofiled"]);
 
@@ -27,9 +29,19 @@ function healMeta(meta: unknown): ColumnMeta | null {
   return null;
 }
 
-/** Heal one column; returns the same object when nothing needed fixing. */
+/**
+ * Heal one column; returns the same object when nothing needed fixing.
+ *
+ * Also the boundary where identifier-like categorical values are withheld
+ * (value-exposure.ts): the Parquet profilers and older cached schemas reach
+ * typed code only through here, so this is the one place they can be caught.
+ */
 export function healColumnMeta(col: CSVColumn): CSVColumn {
   const healed = healMeta(col.meta);
+  if (healed?.kind === "categorical") {
+    const safe = withholdIdentifierValues(healed);
+    return safe === healed ? col : { ...col, meta: safe };
+  }
   if (healed) return col;
   const unprofiled: UnprofiledMeta = {
     kind: "unprofiled",

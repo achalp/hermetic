@@ -52,6 +52,13 @@ export interface CategoricalMeta {
   min_length: number;
   is_unique: boolean;
   detected_pattern?: string;
+  /**
+   * Set when the column looks like per-record identifiers (every value unique,
+   * no value repeating, or an email/phone/UUID/IP pattern): its literal values
+   * were dropped from the profile because they would reach model prompts as
+   * individual records, not a distribution. See lib/csv/value-exposure.ts.
+   */
+  values_withheld?: true;
 }
 
 export interface BooleanMeta {

@@ -66,8 +66,9 @@ export function useHomeComposer({
   }, [armFromComposer, uploadInputRef]);
 
   const composerLocalBrowse = useCallback(() => {
-    // Docker is the only runtime and it supports local-file browsing (bind
-    // mounts), so there's no longer a non-docker case to guard against.
+    // Both runtimes serve a browsed local file: Docker bind-mounts it, and the
+    // wasm tier converts it host-side and delivers it (build log D25), so
+    // there's no runtime case to guard against.
     armFromComposer();
     setShowLocalBrowser(true);
   }, [armFromComposer, setShowLocalBrowser]);

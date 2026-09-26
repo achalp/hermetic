@@ -13,12 +13,20 @@
  * future package. Adding a root here is an API decision, not a fix.
  */
 import { execFileSync } from "node:child_process";
-import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { writeFileSync, mkdtempSync, rmSync, existsSync } from "node:fs";
 import { join, dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const TSC = join(ROOT, "node_modules", "typescript", "bin", "tsc");
+
+if (!existsSync(TSC)) {
+  console.error(
+    `✖ TypeScript compiler not found at ${relative(ROOT, TSC)} — run \`pnpm install\` first.`
+  );
+  process.exit(1);
+}
 
 const TARGETS = [
   {
@@ -114,6 +122,7 @@ const TARGETS = [
 
 const scratch = mkdtempSync(join(tmpdir(), "hermetic-isolation-"));
 let failed = false;
+let tscFailed = false;
 
 try {
   for (const t of TARGETS) {
@@ -130,13 +139,25 @@ try {
 
     let out;
     try {
-      out = execFileSync("npx", ["tsc", "-p", cfgPath, "--listFilesOnly"], {
+      // The repo's own tsc, not `npx tsc`: npx can resolve (or try to download)
+      // a different compiler, and when IT fails the reason goes to stderr.
+      out = execFileSync(process.execPath, [TSC, "-p", cfgPath, "--listFilesOnly"], {
         cwd: ROOT,
         encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
       });
     } catch (err) {
-      console.error(`✖ ${t.name}: tsc failed\n${err.stdout ?? err.message}`);
+      // tsc reports diagnostics on stdout; a launcher failure reports on stderr
+      // or only in err.message. Print all of them — `stdout ?? message` printed
+      // an empty string whenever stdout was "" (not nullish), i.e. a bare
+      // "tsc failed" with the actual reason discarded.
+      const detail = [err.stdout, err.stderr, err.message]
+        .map((s) => (s ?? "").toString().trim())
+        .filter(Boolean)
+        .join("\n");
+      console.error(`✖ ${t.name}: tsc failed\n${detail}`);
       failed = true;
+      tscFailed = true;
       continue;
     }
 
@@ -162,6 +183,13 @@ try {
   rmSync(scratch, { recursive: true, force: true });
 }
 
+if (tscFailed) {
+  console.error(
+    "\nIsolation check could not run: tsc itself failed (output above). This is a\n" +
+      "toolchain/environment problem, not a boundary breach."
+  );
+  process.exit(1);
+}
 if (failed) {
   console.error(
     "\nIsolation check failed. A file above imports outside its future package.\n" +
