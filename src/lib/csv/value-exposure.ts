@@ -30,9 +30,19 @@ import type { CategoricalMeta } from "@/lib/contracts/data-schema";
 /** Patterns whose values identify a person, device, or record rather than a group. */
 const IDENTIFIER_PATTERNS = new Set(["email", "phone", "uuid", "ip_address"]);
 
-export function isIdentifierLike(meta: CategoricalMeta): boolean {
+function isIdentifierLike(meta: CategoricalMeta): boolean {
   if (meta.is_unique) return true;
   return !!meta.detected_pattern && IDENTIFIER_PATTERNS.has(meta.detected_pattern);
+}
+
+/** A copy of `meta` with the value lists removed and the withholding recorded. */
+function withheld(
+  meta: CategoricalMeta,
+  drop: ("distinct_values" | "top_values")[]
+): CategoricalMeta {
+  const out: CategoricalMeta = { ...meta, values_withheld: true };
+  for (const k of drop) delete out[k];
+  return out;
 }
 
 /**
@@ -41,16 +51,12 @@ export function isIdentifierLike(meta: CategoricalMeta): boolean {
  */
 export function withholdIdentifierValues(meta: CategoricalMeta): CategoricalMeta {
   if (meta.values_withheld) return meta;
-  if (isIdentifierLike(meta)) {
-    const { distinct_values: _dv, top_values: _tv, ...rest } = meta;
-    return { ...rest, values_withheld: true };
-  }
+  if (isIdentifierLike(meta)) return withheld(meta, ["distinct_values", "top_values"]);
   const top = meta.top_values;
   if (!top || top.every((t) => t.count > 1)) return meta;
   const repeated = top.filter((t) => t.count > 1);
   if (repeated.length > 0) return { ...meta, top_values: repeated };
   // Nothing repeats (e.g. unique-with-nulls, which the Parquet profiler's
   // row-count-based is_unique misses): every listed value is a record.
-  const { top_values: _tv, ...rest } = meta;
-  return { ...rest, values_withheld: true };
+  return withheld(meta, ["top_values"]);
 }
