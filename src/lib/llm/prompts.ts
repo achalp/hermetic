@@ -66,6 +66,8 @@ export function formatColumnMeta(col: CSVColumn): string {
       } else if (m.top_values) {
         const topStr = m.top_values.map((t) => `${t.value}(${t.count})`).join(", ");
         tags.push(`top: ${topStr}`);
+      } else if (m.values_withheld) {
+        tags.push("values withheld (identifier-like)");
       }
       if (m.detected_pattern) tags.push(`pattern: ${m.detected_pattern}`);
       tags.push(`lengths: avg=${m.avg_length}, max=${m.max_length}`);

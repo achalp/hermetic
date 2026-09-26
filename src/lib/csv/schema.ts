@@ -11,6 +11,7 @@ import type {
 } from "@/lib/contracts/data-schema";
 import type { ParsedCSV } from "./parser";
 import { MAX_SAMPLE_ROWS, MAX_PREVIEW_ROWS } from "@/lib/constants";
+import { withholdIdentifierValues } from "./value-exposure";
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -441,7 +442,7 @@ function extractCategoricalMeta(rawValues: string[]): CategoricalMeta {
   const pattern = detectStringPattern(nonEmpty);
   if (pattern) meta.detected_pattern = pattern;
 
-  return meta;
+  return withholdIdentifierValues(meta);
 }
 
 // ── Boolean metadata ──────────────────────────────────────────────

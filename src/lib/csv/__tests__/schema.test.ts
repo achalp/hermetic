@@ -353,10 +353,10 @@ describe("extractCategoricalMeta", () => {
   });
 
   it("emits top_values (top 10 by count desc) when distinct_count > 30", () => {
-    // 31 distinct categories so we cross the 30 threshold.
-    // Give "hot" a huge count so it sorts to the top deterministically.
+    // 31 distinct categories so we cross the 30 threshold; each seen 2+i%3
+    // times so every top value repeats. "hot" sorts first deterministically.
     const rows: string[] = [];
-    for (let i = 0; i < 31; i++) rows.push(`c${i}`); // 31 distinct, each once
+    for (let i = 0; i < 31; i++) for (let k = 0; k < 2 + (i % 3); k++) rows.push(`c${i}`);
     for (let i = 0; i < 50; i++) rows.push("hot"); // makes "hot" the most frequent
     // Now distinct = 32 ( > 30 )
     const schema = extractSchema(singleColumn("cat", rows), "id", "f.csv");
