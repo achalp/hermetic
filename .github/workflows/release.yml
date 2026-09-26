@@ -104,6 +104,31 @@ jobs:
           subject-name: ${{ steps.push.outputs.image }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
+      # SBOM of the image AS PUSHED (by digest): the Python stack that actually
+      # executes analysis code. Scanned from the image contents, so it is
+      # attested to that digest — unlike the source SBOM in the release job.
+      - name: Generate sandbox image SBOM
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          image: ${{ steps.push.outputs.image }}@${{ steps.push.outputs.digest }}
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          format: cyclonedx-json
+          output-file: hermetic-sandbox.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Attest sandbox image SBOM
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-name: ${{ steps.push.outputs.image }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          sbom-path: hermetic-sandbox.cdx.json
+          push-to-registry: true
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: sbom-sandbox-image
+          path: hermetic-sandbox.cdx.json
+          if-no-files-found: error
 
   # One NATIVE release build of the Rust egress-fetch bin per platform — the
   # host-side remote-read edge (manifest fetch, S3 listing, ranged wasm reads).
@@ -180,6 +205,25 @@ jobs:
       attestations: write # write the bundle provenance attestation
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Dependency inventory of the TAGGED SOURCE (pnpm-lock.yaml, both
+      # Cargo.locks, pinned workflow actions), scanned before install so it
+      # reads the lockfiles, not node_modules. The sandbox's Python pins live
+      # inline in its Dockerfile — the image SBOM above is what covers them. It is a SUPERSET of any one
+      # artifact (it includes dev deps; the .mcpb is an esbuild bundle with no
+      # package metadata to scan), so it is attached to the release as an
+      # inventory — not attested as the SBOM of the bundle.
+      - name: Generate source dependency SBOM
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: hermetic-source.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: sbom-sandbox-image
+          path: .
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
@@ -214,7 +258,8 @@ jobs:
           [[ "$TAG" == *-* ]] && FLAGS="--prerelease"
           REPO="${{ github.repository }}"
           sha256sum hermetic.mcpb > hermetic.mcpb.sha256
-          gh release create "$TAG" hermetic.mcpb hermetic.mcpb.sha256 --generate-notes $FLAGS \
+          gh release create "$TAG" hermetic.mcpb hermetic.mcpb.sha256 \
+            hermetic-source.cdx.json hermetic-sandbox.cdx.json --generate-notes $FLAGS \
             --notes "Sandbox image: \`ghcr.io/${REPO}-sandbox:${TAG#v}\`
 
           Claude Desktop extension: \`hermetic.mcpb\` (attached below — Settings → Extensions → Install Extension)
@@ -224,7 +269,9 @@ jobs:
           gh attestation verify oci://ghcr.io/${REPO}-sandbox:${TAG#v} --repo ${REPO}
           gh attestation verify hermetic.mcpb --repo ${REPO}
           sha256sum -c hermetic.mcpb.sha256
-          \`\`\`"
+          \`\`\`
+
+          **SBOMs** (CycloneDX, attached below): \`hermetic-sandbox.cdx.json\` is the sandbox image's contents, attested to its digest (\`gh attestation verify oci://ghcr.io/${REPO}-sandbox:${TAG#v} --repo ${REPO} --predicate-type https://cyclonedx.org/bom\`); \`hermetic-source.cdx.json\` inventories the tagged source's lockfiles (a superset of any one artifact, dev deps included)."
 
   # Desktop bundles (build log D42). Runs AFTER the release exists and uploads
   # into it, because a packaged desktop build is far too slow to hold release
