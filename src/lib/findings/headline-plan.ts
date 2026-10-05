@@ -11,6 +11,7 @@
 import type { FindingEntry } from "@/lib/contracts/findings";
 import { resolvePurpose } from "@/lib/purpose-prompts";
 import type { ValueEntry } from "@/lib/contracts/product";
+import { stripCurrencySuffix } from "@/lib/units";
 
 export interface HeadlineTile {
   /** Placeholder the tile's value MUST bind ("$finding:x.value", "$result:k"). */
@@ -47,10 +48,14 @@ const isObj = (v: unknown): v is Record<string, unknown> =>
   v !== null && typeof v === "object" && !Array.isArray(v);
 
 function humanize(name: string): string {
-  return name
-    .replace(/^step_\d+\./, "")
-    .split(/[._]/)
-    .filter(Boolean)
+  // "total_pipeline_revenue_usd" labelled a README-reel tile "Total Pipeline
+  // Revenue Usd": the unit belongs to the value, not the label.
+  return stripCurrencySuffix(
+    name
+      .replace(/^step_\d+\./, "")
+      .split(/[._]/)
+      .filter(Boolean)
+  )
     .map((w) => w[0].toUpperCase() + w.slice(1))
     .join(" ");
 }

@@ -39,6 +39,12 @@ describe("planHeadlineTiles — the server owns the headline set", () => {
     expect(tiles.length).toBeGreaterThanOrEqual(4);
   });
 
+  it("leaves the currency unit out of a tile label", () => {
+    // "Total Pipeline Revenue Usd" on the README reel: the value carries the unit.
+    const tiles = planHeadlineTiles([], { total_pipeline_revenue_usd: 33.1e6 });
+    expect(tiles[0]?.label).toBe("Total Pipeline Revenue");
+  });
+
   it("labels a slope tile as a rate, not a level", () => {
     // Without the yoy finding the change tile falls back to the trend slope;
     // "Cases Trend" alone read as a total on the README reel's dashboard.
