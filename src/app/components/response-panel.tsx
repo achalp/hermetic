@@ -31,6 +31,7 @@ import {
   PipelineProgress,
   InvestigateProgress,
   InvestigationCaveats,
+  SummaryNotes,
   SpinnerIcon,
 } from "@/app/components/analysis-progress";
 import { truncate } from "@/lib/format";
@@ -652,6 +653,9 @@ export function ResponsePanel({
                 toolbar={<SelectionDrillBar />}
                 slidesRoot
               />
+
+              {/* Housekeeping notes: collapsed, after the answer, not before it. */}
+              {!isStreaming && <SummaryNotes spec={activeSpec} />}
 
               {/* Save/Export/Artifacts actions moved to top bar — see page.tsx */}
             </Card>

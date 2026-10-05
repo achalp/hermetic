@@ -4,7 +4,7 @@ import { render, screen, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 import { FindingsTab, GroundingAdvisories, parseCodeRefLine } from "@/app/components/findings-tab";
-import { InvestigationCaveats } from "@/app/components/analysis-progress";
+import { InvestigationCaveats, SummaryNotes } from "@/app/components/analysis-progress";
 import type { FindingsManifest } from "@/lib/contracts/findings";
 import type { GroundingReport } from "@/lib/contracts/grounding";
 
@@ -111,29 +111,43 @@ describe("grounding advisories", () => {
     uncitedSuccessfulSteps: [],
   };
 
-  it("InvestigationCaveats keeps the top tier in plain language, ids behind the reveal", () => {
-    // A correlation dashboard printed TWENTY raw ids as prose here —
-    // "king_county_hdi_presence, king_county_homeless_presence,
-    // datasets_overlap_sufficient, …" — in the one block whose purpose is plain
-    // language. The count belongs up top; the names belong under the technical
-    // details, the same two-tier idiom this component already applies to
-    // findingIssues.
+  it("keeps material advisories above the dashboard and housekeeping below it", () => {
+    // README reel: "A few notes on this summary" opened every dashboard, above
+    // the answer, with counts of un-narrated figures and trimmed sentences.
+    // Material items stay on top; housekeeping moves to a collapsed note.
     const spec = { root: "r", elements: {}, state: { __grounding: REPORT } };
-    render(<InvestigationCaveats spec={spec as never} />);
-
+    const top = render(<InvestigationCaveats spec={spec as never} />);
     expect(
       screen.getByText(/rising trend but the computed trend result says falling/)
     ).toBeTruthy();
+    // A name that DOES stay in the sentence reads as words, not as a key.
+    expect(screen.getByText(/\(median revenue\) isn't shown as a headline stat/)).toBeTruthy();
+    expect(screen.queryByText(/not called out in the write-up/)).toBeNull();
+    expect(screen.queryByText(/None of them change the results/)).toBeNull();
+    top.unmount();
+
+    const { container } = render(<SummaryNotes spec={spec as never} />);
+    const notes = container.querySelector("details");
+    expect(notes).not.toBeNull();
+    expect(notes!.open).toBe(false); // collapsed by default
+    expect(screen.getByText(/Notes on this summary/)).toBeTruthy();
     expect(
       screen.getByText(/2 computed figures were not called out in the write-up\./)
     ).toBeTruthy();
-    // The identifiers are still available — just not as prose.
+    // Identifiers stay behind the technical reveal, never as prose.
     expect(
       screen.getByText(/Computed but not narrated: august_step, churn_by_cohort/)
     ).toBeTruthy();
-    // A name that DOES stay in the sentence reads as words, not as a key.
-    expect(screen.getByText(/\(median revenue\) isn't shown as a headline stat/)).toBeTruthy();
     expect(screen.getByText(/derivation contradiction/)).toBeTruthy();
+    expect(screen.queryByText(/rising trend but the computed/)).toBeNull();
+  });
+
+  it("the full list (Trail, notebook) still shows every advisory", () => {
+    render(<GroundingAdvisories grounding={REPORT} />);
+    expect(
+      screen.getByText(/rising trend but the computed trend result says falling/)
+    ).toBeTruthy();
+    expect(screen.getByText(/2 computed figures were not called out/)).toBeTruthy();
   });
 
   it("renders nothing for reports that predate the advisory fields", () => {
