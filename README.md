@@ -2,7 +2,7 @@
 
 Hermetic is an open-source AI data analyst that runs on your machine: ask a question of a spreadsheet, a Parquet file, or a warehouse and get an interactive dashboard, while the model writes the analysis code without ever seeing your rows ([what it does see](#what-the-model-sees)). The narrative's numbers are filled in by reference from what that code actually computed, a figure that traces to no computed value is flagged instead of stated as fact, and a Verify panel and an on-demand adversarial audit show the receipts.
 
-<!-- FLOW-REEL -->
+![Flow: load a CSV, ask in plain English, get a live dashboard, check the numbers in Verify and the on-demand audit, export a self-contained HTML file](docs/flow-reel.gif)
 
 What that guarantees is **numerical traceability** (each number traces to a computation on your data), not **analytical correctness** (that the analysis chosen was the right one). The analysis declares its findings and data-quality checks as typed claims you can inspect, but there is no public benchmark of answer quality yet ([Known limitations](#known-limitations)).
 
@@ -22,19 +22,19 @@ What that guarantees is **numerical traceability** (each number traces to a comp
 - **Teach it your domain:** drop-in [skills](#skills--teach-it-your-domain) carry your team's definitions and tested helper code, and a curated [learning loop](#trust--verification) reuses past good runs.
 - **Editable dashboards:** the optional [compiled composer](#philosophy) builds the dashboard deterministically from the declared claims, so you can reorder, hide, and add sections without another model call.
 
-![Home screen with file upload, warehouse connect, and saved connections](docs/home.png)
+![Home screen with the question composer, Ask/Investigate modes, and one-click examples on the sample dataset](docs/home.png)
 
 ![Ask screen with LLM-generated question suggestions](docs/ask-suggestions.png)
 
-![Dashboard with scatter chart, radar chart, insights, and statistical test](docs/dashboard.png)
+![Dashboard with KPI tiles, narrative with bound figures, and a filterable bar chart](docs/dashboard.png)
 
-![Artifacts panel with syntax-highlighted SQL query](docs/artifacts.png)
+![Artifacts panel with the generated Python, data, findings, and Verify tabs](docs/artifacts.png)
 
 ![Data explorer rail with table list, schema, and sample data](docs/data-explorer.png)
 
 ![Settings drawer with themes, mode toggle, and connected sources](docs/settings.png)
 
-![Saved visualizations with load, update, and delete actions](docs/saved-vizs.png)
+![Saved visualizations with load, re-run, update data, schedule, and delete actions](docs/saved-vizs.png)
 
 ## Get Hermetic
 
