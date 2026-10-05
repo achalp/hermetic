@@ -148,7 +148,7 @@ describe("$finding resolution (declared-findings spec §4.2)", () => {
       {},
       findings
     );
-    expect(out).toContain("split: rate: 1317.3, volume: 203.8, dominant: rate done");
+    expect(out).toContain("split: rate: 1,317.3, volume: 203.8, dominant: rate done");
   });
 
   it("the final sweeps strip unresolved $finding tokens instead of leaking them", () => {
@@ -861,5 +861,52 @@ describe("step-qualified finding FIELD paths (L3 backlog #2)", () => {
     expect(resolveSpecPlaceholders('{"value": "$finding:a.b.c"}', {}, {}, layered)).toBe(
       '{"value": 1}'
     );
+  });
+});
+
+describe("README reel prose: decomposition units, unit-suffixed identifiers, float dumps", () => {
+  const findings = {
+    channel_gap: {
+      volume_effect: 973748.3383,
+      price_effect_usd: 11143438.5617,
+      dominant: "price_effect_usd",
+      residual: 0.12,
+    },
+    shares: { north_america_usd: 61.2, europe_usd: 38.8 },
+  };
+  const units = { channel_gap: "usd" };
+
+  it("gives decomposition terms the finding's unit", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "a volume effect of $finding:channel_gap.volume_effect and a price effect of $finding:channel_gap.price_effect_usd"}',
+      {},
+      {},
+      findings,
+      units
+    );
+    expect(out).toContain("volume effect of $973,748.34");
+    expect(out).toContain("price effect of $11,143,438.56");
+  });
+
+  it("drops a trailing currency segment when humanizing an identifier", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "driven mainly by the $finding:channel_gap.dominant, with $finding:shares"}',
+      {},
+      {},
+      findings,
+      units
+    );
+    expect(out).toContain("driven mainly by the price effect,");
+    expect(out).not.toContain("usd");
+    expect(out).toContain("north america at 61.2");
+  });
+
+  it("groups thousands-scale decimals but leaves integers such as years alone", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "a gap of $result:gap in $result:year"}',
+      { gap: 973748.3383, year: 2024 },
+      {}
+    );
+    expect(out).toContain("a gap of 973,748.34 in 2024");
   });
 });
