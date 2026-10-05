@@ -15,7 +15,7 @@ vi.mock("@/lib/llm/client", () => ({
   cachedSystem: (s: string) => s,
 }));
 
-import { generatePlan } from "@/lib/compose/planner";
+import { generatePlan, PLANNER_ATTEMPT_TIMEOUT_MS } from "@/lib/compose/planner";
 import type { FindingEntry } from "@/lib/contracts/findings";
 
 const FINDINGS = [
@@ -52,5 +52,28 @@ describe("generatePlan — repair advisories reach the planner prompt", () => {
     await generatePlan({ findings: FINDINGS, question: "How have prices moved?", model: "m" });
     const prompt = (generateTextMock.mock.calls[0][0] as { prompt: string }).prompt;
     expect(prompt).not.toContain("## Repair");
+  });
+});
+
+describe("generatePlan — a stalled planner call fails over instead of hanging", () => {
+  it("bounds every attempt with an abort signal", async () => {
+    await generatePlan({ findings: FINDINGS, question: "q", model: "m" });
+    const opts = generateTextMock.mock.calls[0][0] as { abortSignal?: AbortSignal };
+    expect(opts.abortSignal).toBeInstanceOf(AbortSignal);
+    expect(PLANNER_ATTEMPT_TIMEOUT_MS).toBeLessThan(10 * 60_000);
+  });
+
+  it("skips the retry after a timeout and returns the fallback plan", async () => {
+    const timeout = Object.assign(new Error("timed out"), { name: "TimeoutError" });
+    generateTextMock.mockReset();
+    generateTextMock.mockRejectedValue(timeout);
+    const { plan, plannerErrors } = await generatePlan({
+      findings: FINDINGS,
+      question: "q",
+      model: "m",
+    });
+    expect(generateTextMock).toHaveBeenCalledTimes(1);
+    expect(plan.nodes.length).toBeGreaterThan(0);
+    expect(plannerErrors[0]).toContain("timed out");
   });
 });

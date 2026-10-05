@@ -11,6 +11,7 @@ import { getModel, cachedSystem } from "@/lib/llm/client";
 import { withPhase } from "@/lib/cost/accumulator";
 import { projectManifestForPrompt } from "@/lib/findings/project";
 import { logger, errMessage } from "@/lib/logger";
+import { getRunSignal } from "@/lib/pipeline/run-control";
 import type { FindingEntry } from "@/lib/contracts/findings";
 import type { Plan } from "@/lib/contracts/plan";
 import {
@@ -25,6 +26,15 @@ import {
 import { COMPONENT_ROLE_SIGNATURES, seriesKindOf } from "@/lib/product/signatures";
 import { P1_COMPILABLE } from "./view-compilers";
 import type { SeriesEntry } from "@/lib/contracts/product";
+
+/**
+ * Budget for ONE planner attempt. The plan is a few hundred tokens and the
+ * pipeline has a deterministic fallback, so a stalled call should fail over,
+ * not hold the dashboard for the transport's 10-minute ceiling: a Claude CLI
+ * planner call hung for exactly that long during the README capture, while
+ * healthy ones there took under two minutes.
+ */
+export const PLANNER_ATTEMPT_TIMEOUT_MS = 180_000;
 
 const PlannerResponse = z.object({
   nodes: z
@@ -107,6 +117,17 @@ ${buildViewCatalog()}`;
 /** The default-style prompt (kept for compatibility/tests). */
 export const PLANNER_SYSTEM = buildPlannerSystem();
 
+function attemptSignal(): AbortSignal {
+  const timeout = AbortSignal.timeout(PLANNER_ATTEMPT_TIMEOUT_MS);
+  const run = getRunSignal();
+  return run ? AbortSignal.any([run, timeout]) : timeout;
+}
+
+function isAbort(err: unknown): boolean {
+  const name = (err as { name?: string } | null)?.name;
+  return name === "AbortError" || name === "TimeoutError";
+}
+
 export async function generatePlan(args: {
   findings: FindingEntry[];
   question: string;
@@ -178,6 +199,8 @@ export async function generatePlan(args: {
           prompt: prompt + feedback,
           temperature: 0,
           maxOutputTokens: 4500,
+          // Stop must cancel the planner too, not only codegen.
+          abortSignal: attemptSignal(),
         })
       );
       const start = res.text.indexOf("{");
@@ -199,6 +222,8 @@ export async function generatePlan(args: {
     } catch (err) {
       errors.push(`attempt ${attempt}: ${errMessage(err)}`);
       feedback = "";
+      // A timed-out or stopped attempt would only stall again: fall back now.
+      if (isAbort(err)) break;
     }
   }
   // Per-node salvage (plan.ts): a failed validation degrades the offending
