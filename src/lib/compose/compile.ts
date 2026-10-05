@@ -9,7 +9,7 @@ import type { FindingsManifest } from "@/lib/contracts/findings";
 import type { AnalysisProduct } from "@/lib/contracts/product";
 import type { Plan, PlanOverlay } from "@/lib/contracts/plan";
 import type { HeadlineTile } from "@/lib/findings/headline-plan";
-import { realizeNode, realizeCaveat } from "./realizer";
+import { realizeNode, realizeCaveat, checkValueFailed } from "./realizer";
 import {
   failedCheckBanner,
   tileElement,
@@ -60,12 +60,7 @@ export function compileDashboard(input: CompileInput): string[] {
   // (finding PE-2) — less visible than a passed:false check's caveat.
   const failed = manifest.findings.filter((f) => {
     if (f.dtype !== "check" && f.dtype !== "screen" && f.dtype !== "outliers") return false;
-    if (f.value === null || typeof f.value !== "object") return false;
-    const v = f.value as Record<string, unknown>;
-    return (
-      v.passed === false ||
-      (v.passed === undefined && typeof v.n_flagged === "number" && v.n_flagged > 0)
-    );
+    return checkValueFailed(f.value);
   });
   const banner = failedCheckBanner(failed);
   if (banner) {
@@ -168,14 +163,9 @@ export function compileDashboard(input: CompileInput): string[] {
         children: [],
       };
     } else if (node.op === "CAVEAT") {
-      const failed = node.refs.some((r) => {
-        const f = byName.get(r);
-        return (
-          f?.value !== null &&
-          typeof f?.value === "object" &&
-          (f.value as Record<string, unknown>).passed === false
-        );
-      });
+      // Same predicate as the banner: a screen that flagged offenders must not
+      // render with a green check under a banner saying it didn't pass.
+      const failed = node.refs.some((r) => checkValueFailed(byName.get(r)?.value));
       // Plain content + the technical evidence moved behind a "what does this mean?"
       // disclosure (redesign): the callout reads like a human note, not a dev log.
       const cav = realizeCaveat(node, byName);

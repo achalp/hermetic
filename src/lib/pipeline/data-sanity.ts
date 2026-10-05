@@ -255,6 +255,59 @@ export function findInconsistentMagnitudes(
   return out;
 }
 
+/**
+ * A period label that sorts in time: a year, an ISO date or datetime, a month
+ * (2024-07), a quarter (2024-Q3), or an ISO week (2024-W31). Numbers count only
+ * as years, so a ranked table's `rank` or a county code like "06073" is not
+ * mistaken for a time axis.
+ */
+const PERIOD_RE = /^(\d{4})(?:-(?:\d{2}(?:-\d{2}(?:[T ][\d:.]+Z?)?)?|Q[1-4]|W\d{2}))?$/;
+
+function periodKey(v: unknown): string | null {
+  const s = typeof v === "number" ? String(v) : typeof v === "string" ? v.trim() : null;
+  if (s === null) return null;
+  const m = PERIOD_RE.exec(s);
+  if (!m) return null;
+  const year = Number(m[1]);
+  return year >= 1800 && year <= 2199 ? s : null;
+}
+
+/**
+ * The key whose values make the rows a TIME SERIES — one value per period, in
+ * order — or undefined when the rows are anything else.
+ *
+ * The spike and flat-trend checks judge a point against its neighbours and a
+ * series against its endpoints. Both only mean something when the order of the
+ * rows is the order of time. On a breakdown by category the "neighbours" of
+ * Direct are whichever channels the analysis happened to list beside it, and
+ * the largest category reads as a spike: run over the 176 saved runs in
+ * data/runs on 2026-10-04, the outlier caveat fired on 9, and none of the 9
+ * was a time series: 8 were categorical axes (merchants, spend categories,
+ * customer tiers, income bands, county FIPS codes) and the ninth was a list of
+ * individual transactions with several rows per date. Gated on this, it fires
+ * on 0 of 176, while the King County series it was written for still fires.
+ */
+function findTimeAxis(rows: Record<string, unknown>[]): string | undefined {
+  const first = rows[0];
+  if (!first) return undefined;
+  for (const key of Object.keys(first)) {
+    let prev: string | null = null;
+    let ordered = true;
+    for (const row of rows) {
+      const k = periodKey(row?.[key]);
+      // Lexical order is time order for these formats at a fixed granularity;
+      // strictly increasing also rejects lists with repeated periods.
+      if (k === null || (prev !== null && !(k > prev && k.length === prev.length))) {
+        ordered = false;
+        break;
+      }
+      prev = k;
+    }
+    if (ordered) return key;
+  }
+  return undefined;
+}
+
 export interface DataSanityInput {
   results?: Record<string, unknown>;
   /** chart_data: series id -> rows. */
@@ -288,8 +341,12 @@ export function buildDataSanityCaveats(input: DataSanityInput): string[] {
     const rows = raw as Record<string, unknown>[];
     const first = rows[0];
     if (!first || typeof first !== "object") continue;
-    const numericKeys = Object.keys(first).filter((k) => typeof first[k] === "number");
-    const xKey = Object.keys(first).find((k) => typeof first[k] === "string");
+    // Only a time series has neighbours and endpoints; see findTimeAxis.
+    const xKey = findTimeAxis(rows);
+    if (!xKey) continue;
+    const numericKeys = Object.keys(first).filter(
+      (k) => k !== xKey && typeof first[k] === "number"
+    );
     for (const key of numericKeys) {
       for (const anomaly of findSeriesOutliers(rows, key, xKey)) {
         const pct = Math.round(Math.abs(anomaly.deviation) * 100);

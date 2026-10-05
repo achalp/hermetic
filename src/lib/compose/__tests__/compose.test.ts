@@ -786,6 +786,36 @@ describe("edit grammar — views, shown overlay, purpose survival", () => {
     expect(bannerLine).toContain("Outlier Scan");
   });
 
+  it("never renders a screen that flagged offenders with a green check", () => {
+    // The README reel: the banner said "Won Deal Revenue Outlier Screen didn't
+    // fully pass" while the screen's own caveat below it showed ✅, because the
+    // caveat icon only knew passed===false.
+    const manifest = {
+      ...MANIFEST,
+      findings: [...MANIFEST.findings, F("deal_screen", "screen", { n_flagged: 8, k: 3.5 })],
+    };
+    const lines = compileDashboard({
+      manifest,
+      product: PRODUCT,
+      plan: {
+        nodes: [
+          { id: "n_answer", op: "ANSWER" as const, refs: ["price_trend"] },
+          { id: "n_cav", op: "CAVEAT" as const, refs: ["deal_screen"] },
+        ],
+      },
+      overlay: {},
+      headlinePlan: [],
+      question: "q",
+    });
+    const banner = lines.find((l) => l.includes('"/elements/compiled_check_banner"'));
+    const caveat = JSON.parse(lines.find((l) => l.includes('"/elements/n_cav"'))!) as {
+      value: { props: { icon: string; severity: string } };
+    };
+    expect(banner).toContain("Deal Screen");
+    expect(caveat.value.props.icon).toBe("alert");
+    expect(caveat.value.props.severity).toBe("warning");
+  });
+
   it("restore_document replays a snapshot — the undo primitive, still governed", () => {
     const removed = applyMutations(DOC, [{ kind: "remove_node", id: "n_i" }]);
     expect(removed.doc.plan.nodes).toHaveLength(1);

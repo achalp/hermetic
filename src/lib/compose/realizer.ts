@@ -76,6 +76,22 @@ const THIN_GROUP_DISCLOSURE_N = 6;
  * underlying fact, one disclosure — keyed on the count and the claim-name
  * root so distinct series' policies still each get theirs.
  */
+/**
+ * Did a check, screen or outliers claim fail? A check fails on passed===false;
+ * a screen with no `passed` field fails when it FLAGGED offenders. The one
+ * definition for every renderer: the banner, the caveat text and the caveat's
+ * icon each kept a copy, the icon's copy lacked the n_flagged branch, and the
+ * README reel showed one screen as both "didn't fully pass" and a green check.
+ */
+export function checkValueFailed(value: unknown): boolean {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    v.passed === false ||
+    (v.passed === undefined && typeof v.n_flagged === "number" && v.n_flagged > 0)
+  );
+}
+
 export function riderClauses(f: FindingEntry, disclosed?: Set<string>): string[] {
   const v = fv(f);
   const n = f.name;
@@ -292,9 +308,7 @@ function headlineClause(f: FindingEntry): string {
       // declared screen) carries its figures FLAT — n_flagged/window/k on
       // the value — so the evidence read falls back to top-level scalars,
       // and "failed" follows screen semantics: offenders found.
-      const failed =
-        v.passed === false ||
-        (v.passed === undefined && typeof v.n_flagged === "number" && v.n_flagged > 0);
+      const failed = checkValueFailed(v);
       const nested =
         v.evidence !== null && typeof v.evidence === "object" && !Array.isArray(v.evidence)
           ? (v.evidence as Record<string, unknown>)

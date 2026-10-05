@@ -21,6 +21,12 @@ describe("formatStatNumber", () => {
     expect(formatStatNumber(3.14159)).toBe("3.14");
   });
 
+  it("rounds thousands-scale decimals and keeps the separator", () => {
+    // The README reel's "Revenue Trend 42293.91" tile.
+    expect(formatStatNumber(42293.91)).toBe("42,294");
+    expect(formatStatNumber(1234.5, "$")).toBe("$1,235");
+  });
+
   it("applies prefix", () => {
     expect(formatStatNumber(1_500_000, "$")).toBe("$1.5M");
     expect(formatStatNumber(99, "€")).toBe("€99");

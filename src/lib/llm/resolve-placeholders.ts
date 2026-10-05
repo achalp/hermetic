@@ -8,6 +8,7 @@
 
 import { logger } from "@/lib/logger";
 import { recordFailure } from "@/lib/diagnostics/failure-log";
+import { isCurrencyUnit, stripCurrencySuffix } from "@/lib/units";
 
 /**
  * Conservatively map a requested chartData key onto one the analysis actually
@@ -362,34 +363,15 @@ function humanizePeriod(value: string): string {
 function humanizeIfIdentifier(value: string): string {
   const dated = humanizePeriod(value);
   if (dated !== value) return dated;
-  return IDENTIFIER_RE.test(value) ? value.replace(/_/g, " ") : value;
+  if (!IDENTIFIER_RE.test(value)) return value;
+  // A trailing currency segment is the column's unit, not part of its name:
+  // "price_effect_usd" read as "the price effect usd effect" and a region key
+  // as "north america usd" on the README reel's dashboard. The amount beside
+  // it already carries the symbol.
+  return stripCurrencySuffix(value.split("_")).join(" ");
 }
 
-/** Currency units, mirroring the MONETARY allowlist in the sandbox runtime
- *  (docker/sandbox/hermetic_runtime/regimes.py `_CURRENCIES`). Keep the two in
- *  step: the runtime decides zero-sentinel policy from it, this decides display
- *  precision, and a unit in one set but not the other reads inconsistently. */
-export const CURRENCY_UNITS = new Set([
-  "usd",
-  "eur",
-  "gbp",
-  "jpy",
-  "dm",
-  "dollar",
-  "dollars",
-  "$",
-  "€",
-  "£",
-  "¥",
-  "cents",
-  "cad",
-  "aud",
-  "chf",
-]);
-
-export function isCurrencyUnit(unit: string | undefined): boolean {
-  return !!unit && CURRENCY_UNITS.has(unit.trim().toLowerCase());
-}
+export { CURRENCY_UNITS, isCurrencyUnit } from "@/lib/units";
 
 /** Fields that ARE the finding's measure, carried in the measure's own unit,
  *  and so inherit the finding's declared unit. Deliberately excludes anything
@@ -457,8 +439,14 @@ function formatCurrencyInline(value: number, unit?: string): string {
  *  bindings get money precision; without it a currency reads as a raw float. */
 function formatInlineNumber(value: number, unit?: string): string {
   if (isCurrencyUnit(unit)) return formatCurrencyInline(value, unit);
+  // Integers stay ungrouped: a bound year must read "2024", not "2,024".
   if (Number.isInteger(value)) return String(value);
   if (value !== 0 && Math.abs(value) < 0.00005) return value.toExponential(2);
+  // Four decimals on a thousands-scale figure is a float dump ("973748.3383"
+  // on the README reel); two, with grouping, is a number a reader can say.
+  if (Math.abs(value) >= 1000) {
+    return value.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  }
   return parseFloat(value.toFixed(4)).toString();
 }
 
@@ -742,6 +730,22 @@ export function resolveSpecPlaceholders(
     // Inline-form: mid-sentence. Structured values need a `.field` path —
     // a bare "shares" finding must not print a JSON object into prose, so
     // objects resolve only when the path reached a leaf.
+    // finding_decompose names its terms after the analysis ("volume_effect",
+    // "price_effect"), so no field list can cover them. Every numeric term and
+    // the residual are amounts in the measure's own unit: they sum to the total
+    // change being explained. The README reel printed both effects as raw
+    // floats beside a dollar total.
+    const isDecompositionTerm = (parentPath: string, f: string): boolean => {
+      if (!parentPath || f === "dominant") return false;
+      const pv = resolveKeyPath(findings, parentPath);
+      return (
+        pv !== null &&
+        typeof pv === "object" &&
+        !Array.isArray(pv) &&
+        "dominant" in pv &&
+        "residual" in pv
+      );
+    };
     const inlineFindingRegex =
       /\$finding:([a-zA-Z0-9_]+(?:\.[\w][^\n",}]*?)*?)(?=\.(?![a-zA-Z0-9_])|[^a-zA-Z0-9_.]|$)/g;
     processed = processed.replace(
@@ -767,7 +771,9 @@ export function resolveSpecPlaceholders(
         const unit =
           findingUnits[trimmed] ??
           findingUnits[trimmed.replace(/\.value$/, "")] ??
-          (MEASURE_UNIT_FIELDS.has(field) ? findingUnits[parent] : undefined) ??
+          (MEASURE_UNIT_FIELDS.has(field) || isDecompositionTerm(parent, field)
+            ? findingUnits[parent]
+            : undefined) ??
           keyNameUnit(trimmed);
         if (typeof value === "number") {
           // Resolve the unit BEFORE formatting: money needs 2dp and grouping,

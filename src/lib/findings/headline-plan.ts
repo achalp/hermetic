@@ -11,6 +11,7 @@
 import type { FindingEntry } from "@/lib/contracts/findings";
 import { resolvePurpose } from "@/lib/purpose-prompts";
 import type { ValueEntry } from "@/lib/contracts/product";
+import { stripCurrencySuffix } from "@/lib/units";
 
 export interface HeadlineTile {
   /** Placeholder the tile's value MUST bind ("$finding:x.value", "$result:k"). */
@@ -47,10 +48,14 @@ const isObj = (v: unknown): v is Record<string, unknown> =>
   v !== null && typeof v === "object" && !Array.isArray(v);
 
 function humanize(name: string): string {
-  return name
-    .replace(/^step_\d+\./, "")
-    .split(/[._]/)
-    .filter(Boolean)
+  // "total_pipeline_revenue_usd" labelled a README-reel tile "Total Pipeline
+  // Revenue Usd": the unit belongs to the value, not the label.
+  return stripCurrencySuffix(
+    name
+      .replace(/^step_\d+\./, "")
+      .split(/[._]/)
+      .filter(Boolean)
+  )
     .map((w) => w[0].toUpperCase() + w.slice(1))
     .join(" ");
 }
@@ -144,9 +149,11 @@ export function planHeadlineTiles(
         "slope_per_period" in (trend.value as Record<string, unknown>)
           ? "slope_per_period"
           : "slope";
+      // A slope is a rate, not a level: labelled with the finding's name alone,
+      // "Revenue Trend 42,294" reads as a total. Say what the number measures.
       add({
         binding: `$finding:${trend.name}.${field}`,
-        label: humanize(trend.name),
+        label: `${humanize(trend.name)} (change per period)`,
         reason: "change-metric",
       });
     }
