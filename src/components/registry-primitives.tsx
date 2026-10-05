@@ -46,6 +46,9 @@ export function formatStatNumber(num: number, prefix = ""): string {
   if (abs >= 1_000_000_000) return prefix + (num / 1_000_000_000).toFixed(1) + "B";
   if (abs >= 1_000_000) return prefix + (num / 1_000_000).toFixed(1) + "M";
   if (Number.isInteger(num)) return prefix + num.toLocaleString();
+  // Cents on a five-digit figure are noise on a headline tile, and toFixed
+  // drops the thousands separator: a revenue slope rendered as "42293.91".
+  if (abs >= 1_000) return prefix + Math.round(num).toLocaleString();
   return prefix + num.toFixed(2);
 }
 

@@ -39,6 +39,17 @@ describe("planHeadlineTiles — the server owns the headline set", () => {
     expect(tiles.length).toBeGreaterThanOrEqual(4);
   });
 
+  it("labels a slope tile as a rate, not a level", () => {
+    // Without the yoy finding the change tile falls back to the trend slope;
+    // "Cases Trend" alone read as a total on the README reel's dashboard.
+    const tiles = planHeadlineTiles(
+      findings.filter((f) => f.name !== "cases_yoy"),
+      {}
+    );
+    const slope = tiles.find((t) => t.binding === "$finding:cases_trend.slope_per_period");
+    expect(slope?.label).toBe("Cases Trend (change per period)");
+  });
+
   it("prefers yoy over slope for the change tile, empty manifest plans nothing", () => {
     const tiles = planHeadlineTiles(findings, {});
     expect(tiles.some((t) => t.binding === "$finding:cases_yoy.pct_change")).toBe(true);

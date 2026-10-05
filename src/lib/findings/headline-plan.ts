@@ -144,9 +144,11 @@ export function planHeadlineTiles(
         "slope_per_period" in (trend.value as Record<string, unknown>)
           ? "slope_per_period"
           : "slope";
+      // A slope is a rate, not a level: labelled with the finding's name alone,
+      // "Revenue Trend 42,294" reads as a total. Say what the number measures.
       add({
         binding: `$finding:${trend.name}.${field}`,
-        label: humanize(trend.name),
+        label: `${humanize(trend.name)} (change per period)`,
         reason: "change-metric",
       });
     }
