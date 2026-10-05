@@ -8,6 +8,11 @@ Thank you for your interest in contributing! This guide will help you get starte
 2. Run `./start.sh` to set up dependencies and start the dev server
 3. See the [README](README.md) for full setup details
 
+Development happens on macOS and Linux, and every CI test job runs on Linux.
+Windows is not supported for development (`start.sh` is bash and `pnpm dev`
+uses POSIX shell syntax); the Windows desktop installer is only built by the
+release workflow. See README "Platform support".
+
 This project uses **pnpm 10** (the committed lockfile is `pnpm-lock.yaml`;
 CI installs with `pnpm install --frozen-lockfile`). Don't use npm — it
 ignores the pnpm lockfile and can produce a divergent dependency tree.
