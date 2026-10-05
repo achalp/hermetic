@@ -168,6 +168,51 @@ describe("buildDataSanityCaveats", () => {
     ).toEqual([]);
   });
 
+  it("says nothing about a breakdown by CATEGORY — the rows have no neighbours", () => {
+    // The README reel's dashboard: the largest channel read as a "1161% spike"
+    // because the check judged Direct against whichever channels sat beside it.
+    const byChannel = [
+      { channel: "Online", revenue: 2.4e6 },
+      { channel: "Partner", revenue: 1.9e6 },
+      { channel: "Direct", revenue: 20.9e6 },
+      { channel: "Reseller", revenue: 1.8e6 },
+      { channel: "Retail", revenue: 2.1e6 },
+      { channel: "Events", revenue: 2.0e6 },
+    ];
+    expect(buildDataSanityCaveats({ chartData: { revenue_by_channel: byChannel } })).toEqual([]);
+  });
+
+  it("says nothing when numeric codes or ranks stand in for the x axis", () => {
+    // County FIPS codes and ranks are numbers, not periods.
+    const byCounty = ["06001", "06013", "06073", "06075", "06085"].map((fips, i) => ({
+      fips,
+      households: i === 2 ? 900 : 100,
+    }));
+    expect(buildDataSanityCaveats({ chartData: { by_county: byCounty } })).toEqual([]);
+  });
+
+  it("says nothing about per-event rows that repeat a date", () => {
+    const events = [
+      "2026-06-17",
+      "2026-06-17",
+      "2026-06-18",
+      "2026-06-18",
+      "2026-06-19",
+      "2026-06-19",
+    ].map((date, i) => ({ date, spend_usd: i === 2 ? 900 : 20 }));
+    expect(buildDataSanityCaveats({ chartData: { timeline: events } })).toEqual([]);
+  });
+
+  it("still flags a dropout in a monthly series, and in a numeric-year series", () => {
+    const monthly = [100, 102, 5, 101, 99, 100].map((v, i) => ({ month: `2024-0${i + 1}`, v }));
+    expect(buildDataSanityCaveats({ chartData: { m: monthly } }).join("\n")).toContain("2024-03");
+    const yearly = homelessRows.map((r) => ({
+      year: Number(r.year),
+      homeless_rate: r.homeless_rate,
+    }));
+    expect(buildDataSanityCaveats({ chartData: { y: yearly } }).join("\n")).toContain("2021");
+  });
+
   it("tolerates ragged inputs", () => {
     expect(() =>
       buildDataSanityCaveats({
