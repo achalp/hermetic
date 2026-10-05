@@ -1,41 +1,66 @@
 # Hermetic
 
-Hermetic is an open-source, local-first AI data analyst: ask questions of your data in natural language and get interactive dashboards, without the model ever seeing your rows ([what it does see](#what-the-model-sees)).
+Hermetic is an open-source AI data analyst that runs on your machine: ask a question of a spreadsheet, a Parquet file, or a warehouse and get an interactive dashboard, while the model writes the analysis code without ever seeing your rows ([what it does see](#what-the-model-sees)). The narrative's numbers are filled in by reference from what that code actually computed, a figure that traces to no computed value is flagged instead of stated as fact, and a Verify panel and an on-demand adversarial audit show the receipts.
 
-- **Sources**: CSV, Excel, GeoJSON, and Parquet files (single files, Hive-partitioned folders, and cloud Parquet on S3/HTTPS at billion-row scale) — or direct connections to PostgreSQL, BigQuery, ClickHouse, Snowflake, Databricks, Trino, and Hive.
-- **Analysis**: single-question dashboards, conversational follow-ups, and a multi-step **Investigate** agent; every narrative number is checked against what the analysis actually computed.
-- **Honest by construction**: the analysis **declares its findings and checks as typed claims**, a tested statistical runtime applies regime-aware judgment (zero sentinels, thin-data attestation, robust-test dispatch) as **total functions rather than model discretion**, and an optional **compiled composer** writes the narrative and builds the dashboard deterministically from those claims — analyst prose in which every figure is a binding, fabrication unrepresentable. A Verify panel and an on-demand adversarial audit show the receipts.
-- **Editable results**: compiled dashboards are live documents — reorder sections, hide/show elements, edit the insight paragraph, narrate an un-told claim, or add charts from a derived catalog, all through one governed edit grammar shared by the web UI and MCP.
-- **Teachable**: drop-in **skills** (markdown guidance + tested Python helpers) carry your team's definitions and methods, enforced by a pre-execution review gate — and a curated **learning** loop keeps exemplars from past successful runs (lint-flagged runs are vetoed from teaching).
-- **Durable**: analyses persist, restore, re-run against fresh data, refresh on a cron, and export — including as a **single self-contained interactive HTML file** you can share anywhere. Views are URL-addressable; a results link reconstructs the analysis.
-- **Agent-ready**: hermetic is also an **MCP server** — Claude Desktop, Claude Code, or any MCP host can drive the same pipeline as tools (including auditing and editing dashboards) while data and execution stay on your machine.
-- **Models**: cloud LLMs (Anthropic, AWS Bedrock, Google Vertex, OpenAI-compatible — the Claude 5 family selectable per task), your own Claude subscription via the Claude CLI (no API key), or local models via MLX, llama.cpp, or Ollama, with per-phase reasoning-effort control.
+![Flow: load a CSV, ask in plain English, get a live dashboard, check the numbers in Verify and the on-demand audit, export a self-contained HTML file](docs/flow-reel.gif)
 
-![Home screen with file upload, warehouse connect, and saved connections](docs/home.png)
+What that guarantees is **numerical traceability** (each number traces to a computation on your data), not **analytical correctness** (that the analysis chosen was the right one). The analysis declares its findings and data-quality checks as typed claims you can inspect, but there is no public benchmark of answer quality yet ([Known limitations](#known-limitations)).
+
+**What you'll see**
+
+1. **Load data.** Drop in a CSV, Excel, GeoJSON, or Parquet file, browse to a local Parquet folder, point at cloud Parquet, connect a warehouse, or start from the bundled sample dataset.
+2. **Ask.** Type a question in plain English, or pick one Hermetic suggests from your columns. The model writes Python (and SQL, for a warehouse), which runs in a sandbox on your machine with no route off it; a cloud source is reached only through an allowlist of its own host.
+3. **Read the dashboard.** Charts, stat cards, and a short narrative, with the findings and checks the analysis declared. Open **Verify** to see each narrative figure traced to its computation, or run the **audit** to have a second model try to break the story against its own numbers.
+4. **Keep going.** Ask follow-ups, edit the generated code and re-run, save and schedule a refresh, or export to PDF, DOCX, PPTX, or one self-contained interactive HTML file you can send to anyone.
+
+**Beyond the first dashboard**
+
+- **Sources:** local files and Hive-partitioned folders, cloud Parquet on S3/HTTPS, and PostgreSQL, BigQuery, ClickHouse, Snowflake, Databricks, Trino, and Hive.
+- **Investigate:** a multi-step agent that splits one question into sub-questions and composes a single dashboard from the answers.
+- **Models:** Anthropic, AWS Bedrock, Google Vertex, any OpenAI-compatible endpoint, your own Claude login through the Claude CLI, or local models (MLX, llama.cpp, Ollama).
+- **Use it from Claude:** an [MCP server](#using-from-claude-mcp-server) lets Claude Desktop, Claude Code, or another MCP host drive the same pipeline while data and execution stay local.
+- **Teach it your domain:** drop-in [skills](#skills--teach-it-your-domain) carry your team's definitions and tested helper code, and a curated [learning loop](#trust--verification) reuses past good runs.
+- **Editable dashboards:** the optional [compiled composer](#philosophy) builds the dashboard deterministically from the declared claims, so you can reorder, hide, and add sections without another model call.
+
+![Home screen with the question composer, Ask/Investigate modes, and one-click examples on the sample dataset](docs/home.png)
 
 ![Ask screen with LLM-generated question suggestions](docs/ask-suggestions.png)
 
-![Dashboard with scatter chart, radar chart, insights, and statistical test](docs/dashboard.png)
+![Dashboard with KPI tiles, narrative with bound figures, and a filterable bar chart](docs/dashboard.png)
 
-![Artifacts panel with syntax-highlighted SQL query](docs/artifacts.png)
+![Artifacts panel with the generated Python, data, findings, and Verify tabs](docs/artifacts.png)
 
 ![Data explorer rail with table list, schema, and sample data](docs/data-explorer.png)
 
 ![Settings drawer with themes, mode toggle, and connected sources](docs/settings.png)
 
-![Saved visualizations with load, update, and delete actions](docs/saved-vizs.png)
+![Saved visualizations with load, re-run, update data, schedule, and delete actions](docs/saved-vizs.png)
 
 ## Get Hermetic
 
-Three ways in, one pipeline underneath — pick the door that fits:
+**Recommended first run: the desktop app on macOS or Linux.** No Docker, no checkout.
 
-| I want…                            | Get                                                                                                                                                                                                                                   |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **The desktop app**                | [Latest release](https://github.com/achalp/hermetic/releases/latest): macOS `.dmg` (Apple Silicon + Intel, Developer-ID signed & notarized), Windows installer, Linux AppImage/deb/rpm. Auto-updates via signature-verified releases. |
-| **Hermetic inside Claude Desktop** | `hermetic.mcpb` from the same release — one file, installs by double-click (Settings → Extensions), turns Claude into a client of your local Hermetic.                                                                                |
-| **The full checkout**              | `git clone` + [Quick Start](#quick-start) below — the web app, CLI, MCP server, and Docker execution tier with everything inspectable.                                                                                                |
+1. Download it from the [latest release](https://github.com/achalp/hermetic/releases/latest): the macOS `.dmg` (Apple Silicon or Intel, Developer-ID signed and notarized) or the Linux AppImage, `.deb`, or `.rpm` (x86_64).
+2. Give it a model, one of:
+   - **A Claude Code login you already have.** If the `claude` CLI is installed and authenticated, Hermetic detects it and uses that login (Pro/Max subscription or API billing), with no API key to paste. [How it works](#claude-cli-use-your-own-claude-login-no-api-key).
+   - **An API key** (Anthropic, or an OpenAI-compatible endpoint) in **Settings → Advanced Configuration**, stored in your OS keychain.
+   - **A local model** (Ollama, llama.cpp, or MLX on Apple Silicon) from **Settings → Inference**, so nothing leaves your machine.
+3. Choose **Use the sample dataset** (or drop in your own file) and ask a question.
 
-Every artifact is [build-provenance attested](ops/RELEASE.md) (`gh attestation verify <file> --repo achalp/hermetic`). Windows binaries are updater-signed but not yet OS code-signed — SmartScreen will warn on first open.
+The desktop app runs analysis in its built-in WebAssembly sandbox; if Docker is running it switches to the Docker sandbox, which handles larger data ([Sandbox runtimes](#sandbox-runtimes)). It updates itself from signature-verified releases, and every release asset is [build-provenance attested](ops/RELEASE.md) (`gh attestation verify <file> --repo achalp/hermetic`).
+
+**Other ways in.** `hermetic.mcpb` from the same release installs into Claude Desktop by double-click (Settings → Extensions) and makes Claude a client of your local Hermetic ([MCP server](#using-from-claude-mcp-server)). A `git clone` plus [Quick Start](#quick-start) gives you the web app, CLI, MCP server, and Docker sandbox with everything inspectable.
+
+### Platform support
+
+| Entry point                               | macOS                                         | Linux                                       | Windows                                                                                                                                                         | Docker                                                           |
+| ----------------------------------------- | --------------------------------------------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Desktop app, prebuilt                     | Yes: Apple Silicon + Intel, signed, notarized | Yes: x86_64 AppImage / `.deb` / `.rpm`      | **Experimental.** An installer is built and published every release, but it is not code-signed (SmartScreen warns) and has not been run by the maintainer or CI | Optional                                                         |
+| `hermetic.mcpb` in Claude Desktop         | Yes                                           | Bundle boots in CI; no Claude Desktop check | **Experimental.** The bundle ships Windows binaries; untested                                                                                                   | Needed to run analysis; local connect and schema work without it |
+| From a checkout: web app, CLI, MCP server | Yes                                           | Yes                                         | **Not supported** (bash setup script, POSIX shell syntax in `pnpm dev`, POSIX tool shell-outs). WSL2 is untested                                                | Web app: recommended. CLI and MCP server: required               |
+| From a checkout: build the desktop app    | Yes                                           | Yes                                         | Exercised only by the release workflow                                                                                                                          | Not needed                                                       |
+
+Every entry point also needs a model: an API key (Anthropic, Bedrock, Vertex, or OpenAI-compatible), a logged-in Claude CLI, or a local model. Claude CLI detection and local-model management shell out to `which` and `lsof`, which Windows lacks, so on Windows use an API key.
 
 ## Philosophy
 
@@ -82,13 +107,15 @@ Two things to know: a column with ≤ 30 distinct values lists every label even 
 
 ## Quick Start
 
+From a checkout on macOS or Linux (Windows is not supported from source; see [Platform support](#platform-support)). Prerequisites: Node 20.9+, pnpm (via Corepack), Docker for the default web-app runtime, and a model.
+
 ```bash
 git clone https://github.com/achalp/hermetic.git
 cd hermetic
 ./start.sh
 ```
 
-The setup script checks prerequisites, installs dependencies, sets up the Docker sandbox, and starts the dev server. It will prompt you for an API key. For CI or scripted setups, `./start.sh --headless` (or `-y`) accepts defaults and skips every interactive question.
+The setup script checks prerequisites, installs dependencies, sets up the Docker sandbox, and starts the dev server. It then asks which model to use: an API key (Anthropic, Bedrock, Vertex, or an OpenAI-compatible endpoint), your own Claude login through the [Claude CLI](#claude-cli-use-your-own-claude-login-no-api-key) with no key to paste, or a local model. When `claude` is on your `PATH`, the Claude login is the default. For CI or scripted setups, `./start.sh --headless` (or `-y`) accepts defaults and skips every interactive question.
 
 It also offers to connect hermetic to Claude Desktop / Claude Code as an MCP server — see [Using from Claude](#using-from-claude-mcp-server).
 
@@ -118,7 +145,7 @@ pnpm desktop:build     # egress-fetch (release) → tauri build → src-tauri/ta
 pnpm desktop:dev       # or run it in dev mode (Next dev server + Tauri window)
 ```
 
-A `tauri build` produces a **per-OS** installer and must be run **on each target OS** (native webview + code signing are per-platform); prebuilt downloads for Linux, macOS (both arches), and Windows are published from the releases page — updater-signed and provenance-attested; macOS builds are Developer-ID signed + notarized, Windows is **not yet OS code-signed** (SmartScreen will warn on first open; see [`ops/RELEASE.md`](ops/RELEASE.md)).
+A `tauri build` produces a **per-OS** installer and must be run **on each target OS** (native webview + code signing are per-platform); prebuilt downloads for Linux, macOS (both arches), and Windows are published from the releases page — updater-signed and provenance-attested; macOS builds are Developer-ID signed + notarized, Windows is **not yet OS code-signed** (SmartScreen will warn on first open; see [`ops/RELEASE.md`](ops/RELEASE.md)) and is experimental: built by the release workflow, never run there or by the maintainer ([Platform support](#platform-support)).
 
 **Installed-app logs** live in the OS app-data dir under `logs/sidecar.log` (5 MB, one `.old` generation) — macOS: `~/Library/Application Support/com.hermetic.desktop/`, Linux: `~/.local/share/com.hermetic.desktop/`, Windows: `%APPDATA%\com.hermetic.desktop\`. Run artifacts (`data/runs/<id>/journal.jsonl`, `data/diagnostics/`) live next to it.
 
@@ -603,8 +630,8 @@ The runtime is chosen in **Settings** (stored in `data/runtime-config.json`); se
 
 - **Category labels reach the model.** Identifier-like columns are withheld, but every other label can be sent (see [What the model sees](#what-the-model-sees)). Use a local model if that matters.
 - **The WebAssembly sandbox has a documented gap:** untrusted code can reach the app's own local `/api` routes (nothing leaves the machine). See [Sandbox runtimes](#sandbox-runtimes).
-- **Tests pin behavior, not answer quality.** The goldens replay recorded model responses; there is no public benchmark of analysis correctness yet. Each run's lint battery, Verify panel, and on-demand audit are the per-answer checks.
-- **Windows builds are not code-signed** (updater-signed only), so SmartScreen warns on first open.
+- **Tests pin behavior, not answer quality.** The goldens replay recorded model responses; there is no public benchmark of analysis correctness yet. Each run's lint battery, Verify panel, and on-demand audit are the per-answer checks. They establish that each number traces to a computation, not that the model chose the right analysis.
+- **Windows is experimental.** The desktop installer and `.mcpb` are built and published every release, but no CI job runs them on Windows and the maintainer has not tested them; the installer is not code-signed (updater-signed only), so SmartScreen warns on first open. Running from a checkout on Windows is not supported. See [Platform support](#platform-support).
 - **Snowflake results are buffered**, not streamed like the other warehouses, so a very wide result is capped rather than streamed.
 - **The CLI and MCP server need Docker**; only the web and desktop apps can use the WebAssembly sandbox.
 - **One maintainer.** Support is best-effort ([CONTRIBUTING.md](CONTRIBUTING.md#reporting-issues)); security reports go through [SECURITY.md](SECURITY.md).

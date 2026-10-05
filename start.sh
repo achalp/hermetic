@@ -6,8 +6,8 @@ set -euo pipefail
 # ─────────────────────────────────────────────────────────
 
 # Ensure common install locations are in PATH
-# (microsandbox installs to ~/.local/bin, Homebrew to various locations)
-for p in "$HOME/.local/bin" "$HOME/.msb/bin" "/usr/local/bin" "/opt/homebrew/bin"; do
+# (the Claude CLI and pipx tools install to ~/.local/bin, Homebrew to various locations)
+for p in "$HOME/.local/bin" "/usr/local/bin" "/opt/homebrew/bin"; do
   [[ -d "$p" ]] && [[ ":$PATH:" != *":$p:"* ]] && export PATH="$p:$PATH"
 done
 
@@ -544,318 +544,131 @@ case "$LAUNCH_MODE" in
     ;;
 esac
 
-# ── 2. Choose sandbox runtime ────────────────────────────
-step "Choosing sandbox runtime"
-
-# Detect what's available
-HAS_DOCKER=false
-HAS_MSB=false
-HAS_E2B=false
-command -v docker &>/dev/null && docker info &>/dev/null 2>&1 && HAS_DOCKER=true
-command -v msb &>/dev/null && HAS_MSB=true
-([ -f .env.local ] && grep -q "^E2B_API_KEY=" .env.local 2>/dev/null) && HAS_E2B=true
-[ -n "${E2B_API_KEY:-}" ] && HAS_E2B=true
-
-status_tag() {
-  if $1; then
-    echo -e "${GREEN}installed${RESET}"
-  else
-    echo -e "${DIM}not found${RESET}"
-  fi
-}
-
-# If .env.local already exists with a runtime, use it as default
-SAVED_RUNTIME=""
+# ── 2. Sandbox runtime ───────────────────────────────────
+# Docker is the only sandbox runtime for the web app, CLI, and MCP server
+# (src/lib/config.ts forces it). E2B and microsandbox were removed because they
+# cannot enforce --network none; a stale SANDBOX_RUNTIME in .env.local is
+# ignored by the app, and rewritten here so the file stops claiming otherwise.
+RUNTIME="docker"
 if [ -f .env.local ] && grep -q "^SANDBOX_RUNTIME=" .env.local 2>/dev/null; then
   SAVED_RUNTIME=$(grep "^SANDBOX_RUNTIME=" .env.local | cut -d= -f2)
+  if [ "$SAVED_RUNTIME" != "docker" ]; then
+    warn "SANDBOX_RUNTIME=$SAVED_RUNTIME is no longer supported — switching .env.local to docker."
+    grep -v "^SANDBOX_RUNTIME=" .env.local > .env.local.tmp || true
+    echo "SANDBOX_RUNTIME=docker" >> .env.local.tmp
+    mv .env.local.tmp .env.local
+  fi
 fi
 
-# Determine default selection for the prompt
-DEFAULT_NUM="1"
-if [ "$SAVED_RUNTIME" = "microsandbox" ]; then
-  DEFAULT_NUM="2"
-elif [ "$SAVED_RUNTIME" = "e2b" ]; then
-  DEFAULT_NUM="3"
-elif [ -n "$SAVED_RUNTIME" ]; then
-  DEFAULT_NUM="1"
-elif $HAS_MSB; then
-  DEFAULT_NUM="2"
-elif $HAS_E2B && ! $HAS_DOCKER; then
-  DEFAULT_NUM="3"
+# ── 3. Validate & start Docker ───────────────────────────
+step "Setting up Docker sandbox"
+
+if ! command -v docker &>/dev/null; then
+  warn "Docker is not installed."
+  echo ""
+  # Preference order, not alphabetical: Docker Desktop is deprecated under some
+  # corporate policies, and it used to be the ONLY option named here. Colima and
+  # Rancher Desktop give the same daemon with no licence question.
+  echo -e "    Install a Docker daemon (any of these):"
+  echo -e "      ${BOLD}Colima${RESET}          ${BLUE}brew install colima docker${RESET}  ${DIM}(recommended)${RESET}"
+  echo -e "      ${BOLD}Rancher Desktop${RESET} ${BLUE}https://rancherdesktop.io/${RESET}"
+  echo -e "      ${BOLD}Docker Desktop${RESET}  ${BLUE}https://www.docker.com/products/docker-desktop/${RESET}  ${DIM}(check your org's policy)${RESET}"
+  echo -e "      ${BOLD}Linux engine${RESET}    ${BLUE}https://docs.docker.com/engine/install/${RESET}"
+  echo ""
+  echo -e "    Then re-run this script."
+  echo ""
+  fail "Docker not found."
 fi
 
-echo ""
-echo -e "    Choose a sandbox runtime for executing Python code:"
-echo ""
-echo -e "    ${BOLD}1)${RESET} Docker        ${DIM}— containers${RESET}            [$(status_tag $HAS_DOCKER)]"
-echo -e "    ${BOLD}2)${RESET} Microsandbox  ${DIM}— lightweight microVMs${RESET}  [$(status_tag $HAS_MSB)]"
-echo -e "    ${BOLD}3)${RESET} E2B           ${DIM}— cloud sandboxes${RESET}       [$(status_tag $HAS_E2B)]"
-echo ""
-echo -n "    Choose runtime [$DEFAULT_NUM]: "
-read -r RUNTIME_CHOICE
-RUNTIME_CHOICE="${RUNTIME_CHOICE:-$DEFAULT_NUM}"
+if ! docker info &>/dev/null 2>&1; then
+  warn "Docker is installed but not running."
 
-case "$RUNTIME_CHOICE" in
-  2) RUNTIME="microsandbox" ;;
-  3) RUNTIME="e2b" ;;
-  *) RUNTIME="docker" ;;
-esac
+  DOCKER_STARTED=false
 
-# Docker is the only enforced runtime (the app forces it — see lib/config.ts).
-# E2B/microsandbox are experimental scaffolding; don't set up a runtime the app
-# will ignore. Fall back to Docker with a clear message rather than silently.
-if [ "$RUNTIME" != "docker" ]; then
-  warn "$RUNTIME is experimental and not currently wired — using Docker, the only enforced runtime."
-  RUNTIME="docker"
-fi
+  # Try Colima first (available on macOS and Linux)
+  if command -v colima &>/dev/null; then
+    echo -e "    Starting Colima..."
+    colima start 2>/dev/null &
+    echo -ne "    Waiting for Docker daemon"
+    for i in $(seq 1 30); do
+      if docker info &>/dev/null 2>&1; then
+        echo ""
+        ok "Docker daemon is running (via Colima)"
+        DOCKER_STARTED=true
+        break
+      fi
+      echo -n "."
+      sleep 2
+    done
+  fi
 
-ok "Selected $RUNTIME"
+  # Try Rancher Desktop before Docker Desktop — same daemon, no licence
+  # question. (Its CLI lives in ~/.rd/bin, which is why the desktop sidecar
+  # lists that directory ahead of Docker Desktop's; see src-tauri/src/lib.rs.)
+  if [ "$DOCKER_STARTED" = false ] && [ "$(uname)" = "Darwin" ] && [ -d "/Applications/Rancher Desktop.app" ]; then
+    echo -e "    Starting Rancher Desktop..."
+    open -a "Rancher Desktop"
+    echo -ne "    Waiting for Docker daemon"
+    for i in $(seq 1 30); do
+      if docker info &>/dev/null 2>&1; then
+        echo ""
+        ok "Docker daemon is running (via Rancher Desktop)"
+        DOCKER_STARTED=true
+        break
+      fi
+      echo -n "."
+      sleep 2
+    done
+  fi
 
-# ── 3. Validate & start sandbox runtime ──────────────────
-step "Setting up $RUNTIME"
+  # Try Docker Desktop on macOS
+  if [ "$DOCKER_STARTED" = false ] && [ "$(uname)" = "Darwin" ] && [ -d "/Applications/Docker.app" ]; then
+    echo -e "    Starting Docker Desktop..."
+    open -a Docker
+    echo -ne "    Waiting for Docker daemon"
+    for i in $(seq 1 30); do
+      if docker info &>/dev/null 2>&1; then
+        echo ""
+        ok "Docker daemon is running (via Docker Desktop)"
+        DOCKER_STARTED=true
+        break
+      fi
+      echo -n "."
+      sleep 2
+    done
+  fi
 
-if [ "$RUNTIME" = "docker" ]; then
-  if ! command -v docker &>/dev/null; then
-    warn "Docker is not installed."
+  # Try systemd on Linux
+  if [ "$DOCKER_STARTED" = false ] && [ "$(uname)" = "Linux" ] && command -v systemctl &>/dev/null; then
+    echo -e "    Starting Docker via systemctl..."
+    sudo systemctl start docker 2>/dev/null
+    sleep 2
+    if docker info &>/dev/null 2>&1; then
+      ok "Docker daemon is running (via systemctl)"
+      DOCKER_STARTED=true
+    fi
+  fi
+
+  if [ "$DOCKER_STARTED" = false ]; then
     echo ""
-    # Preference order, not alphabetical: Docker Desktop is deprecated under some
-    # corporate policies, and it used to be the ONLY option named here. Colima and
-    # Rancher Desktop give the same daemon with no licence question.
-    echo -e "    Install a Docker daemon (any of these):"
-    echo -e "      ${BOLD}Colima${RESET}          ${BLUE}brew install colima docker${RESET}  ${DIM}(recommended)${RESET}"
-    echo -e "      ${BOLD}Rancher Desktop${RESET} ${BLUE}https://rancherdesktop.io/${RESET}"
-    echo -e "      ${BOLD}Docker Desktop${RESET}  ${BLUE}https://www.docker.com/products/docker-desktop/${RESET}  ${DIM}(check your org's policy)${RESET}"
-    echo -e "      ${BOLD}Linux engine${RESET}    ${BLUE}https://docs.docker.com/engine/install/${RESET}"
+    echo -e "    Start the Docker daemon with one of:"
+    echo -e "      ${BOLD}colima start${RESET}              (Colima)"
+    if [ "$(uname)" = "Darwin" ]; then
+      echo -e "      ${BOLD}open -a \"Rancher Desktop\"${RESET}  (Rancher Desktop)"
+      echo -e "      ${BOLD}open -a Docker${RESET}            (Docker Desktop)"
+    fi
+    if [ "$(uname)" = "Linux" ]; then
+      echo -e "      ${BOLD}sudo systemctl start docker${RESET} (systemd)"
+    fi
     echo ""
     echo -e "    Then re-run this script."
     echo ""
-    fail "Docker not found."
+    fail "Docker daemon not running."
   fi
-
-  if ! docker info &>/dev/null 2>&1; then
-    warn "Docker is installed but not running."
-
-    DOCKER_STARTED=false
-
-    # Try Colima first (available on macOS and Linux)
-    if command -v colima &>/dev/null; then
-      echo -e "    Starting Colima..."
-      colima start 2>/dev/null &
-      echo -ne "    Waiting for Docker daemon"
-      for i in $(seq 1 30); do
-        if docker info &>/dev/null 2>&1; then
-          echo ""
-          ok "Docker daemon is running (via Colima)"
-          DOCKER_STARTED=true
-          break
-        fi
-        echo -n "."
-        sleep 2
-      done
-    fi
-
-    # Try Rancher Desktop before Docker Desktop — same daemon, no licence
-    # question. (Its CLI lives in ~/.rd/bin, which is why the desktop sidecar
-    # lists that directory ahead of Docker Desktop's; see src-tauri/src/lib.rs.)
-    if [ "$DOCKER_STARTED" = false ] && [ "$(uname)" = "Darwin" ] && [ -d "/Applications/Rancher Desktop.app" ]; then
-      echo -e "    Starting Rancher Desktop..."
-      open -a "Rancher Desktop"
-      echo -ne "    Waiting for Docker daemon"
-      for i in $(seq 1 30); do
-        if docker info &>/dev/null 2>&1; then
-          echo ""
-          ok "Docker daemon is running (via Rancher Desktop)"
-          DOCKER_STARTED=true
-          break
-        fi
-        echo -n "."
-        sleep 2
-      done
-    fi
-
-    # Try Docker Desktop on macOS
-    if [ "$DOCKER_STARTED" = false ] && [ "$(uname)" = "Darwin" ] && [ -d "/Applications/Docker.app" ]; then
-      echo -e "    Starting Docker Desktop..."
-      open -a Docker
-      echo -ne "    Waiting for Docker daemon"
-      for i in $(seq 1 30); do
-        if docker info &>/dev/null 2>&1; then
-          echo ""
-          ok "Docker daemon is running (via Docker Desktop)"
-          DOCKER_STARTED=true
-          break
-        fi
-        echo -n "."
-        sleep 2
-      done
-    fi
-
-    # Try systemd on Linux
-    if [ "$DOCKER_STARTED" = false ] && [ "$(uname)" = "Linux" ] && command -v systemctl &>/dev/null; then
-      echo -e "    Starting Docker via systemctl..."
-      sudo systemctl start docker 2>/dev/null
-      sleep 2
-      if docker info &>/dev/null 2>&1; then
-        ok "Docker daemon is running (via systemctl)"
-        DOCKER_STARTED=true
-      fi
-    fi
-
-    if [ "$DOCKER_STARTED" = false ]; then
-      echo ""
-      echo -e "    Start the Docker daemon with one of:"
-      echo -e "      ${BOLD}colima start${RESET}              (Colima)"
-      if [ "$(uname)" = "Darwin" ]; then
-        echo -e "      ${BOLD}open -a \"Rancher Desktop\"${RESET}  (Rancher Desktop)"
-        echo -e "      ${BOLD}open -a Docker${RESET}            (Docker Desktop)"
-      fi
-      if [ "$(uname)" = "Linux" ]; then
-        echo -e "      ${BOLD}sudo systemctl start docker${RESET} (systemd)"
-      fi
-      echo ""
-      echo -e "    Then re-run this script."
-      echo ""
-      fail "Docker daemon not running."
-    fi
-  fi
-
-  ok "Docker daemon is running"
-
-elif [ "$RUNTIME" = "microsandbox" ]; then
-  if ! command -v msb &>/dev/null; then
-    warn "Microsandbox CLI (msb) is not installed."
-    echo ""
-    echo -e "    ${BOLD}1)${RESET} Install now ${DIM}— runs: curl -sSL https://get.microsandbox.dev | sh${RESET}"
-    echo -e "    ${BOLD}2)${RESET} I'll install it myself"
-    echo ""
-    echo -n "    Choose [1]: "
-    read -r MSB_INSTALL
-    case "${MSB_INSTALL:-1}" in
-      2)
-        echo ""
-        echo -e "    Install with:"
-        echo -e "      ${BOLD}curl -sSL https://get.microsandbox.dev | sh${RESET}"
-        echo ""
-        echo -e "    Then start the server:"
-        echo -e "      ${BOLD}msb server start --dev${RESET}"
-        echo ""
-        fail "Install microsandbox, then re-run this script."
-        ;;
-      *)
-        echo ""
-        echo -e "    Installing microsandbox..."
-        if curl -sSL https://get.microsandbox.dev | sh 2>&1 | tail -5; then
-          # Refresh PATH for the newly installed binary
-          for p in "$HOME/.local/bin" "$HOME/.msb/bin"; do
-            [[ -d "$p" ]] && [[ ":$PATH:" != *":$p:"* ]] && export PATH="$p:$PATH"
-          done
-          if command -v msb &>/dev/null; then
-            ok "Microsandbox installed"
-          else
-            fail "Installation finished but 'msb' not found in PATH. Try opening a new terminal and re-running."
-          fi
-        else
-          fail "Installation failed. Try manually: curl -sSL https://get.microsandbox.dev | sh"
-        fi
-        ;;
-    esac
-  else
-    ok "msb CLI found"
-  fi
-
-  # Check if microsandbox server is responding
-  MSB_URL="${MICROSANDBOX_URL:-http://127.0.0.1:5555}"
-
-  msb_reachable() {
-    local status
-    status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 "${MSB_URL}" 2>/dev/null) || return 1
-    [ "$status" != "000" ]
-  }
-
-  if msb_reachable; then
-    ok "Microsandbox server is running at ${MSB_URL}"
-  else
-    warn "Microsandbox server is not running at ${MSB_URL}"
-    echo ""
-    echo -e "    ${BOLD}1)${RESET} Start now ${DIM}— runs: msb server start --dev${RESET}"
-    echo -e "    ${BOLD}2)${RESET} I'll start it myself"
-    echo ""
-    echo -n "    Choose [1]: "
-    read -r MSB_START
-    case "${MSB_START:-1}" in
-      2)
-        echo ""
-        echo -e "    Start the server in another terminal:"
-        echo -e "      ${BOLD}msb server start --dev${RESET}"
-        echo ""
-        fail "Start microsandbox, then re-run this script."
-        ;;
-      *)
-        echo -e "    Starting microsandbox server..."
-
-        # Try --detach first, fall back to backgrounding
-        if msb server start --dev --detach 2>/dev/null; then
-          ok "msb server start --dev --detach succeeded"
-        else
-          msb server start --dev &>/dev/null &
-          MSB_PID=$!
-          disown "$MSB_PID" 2>/dev/null || true
-        fi
-
-        # Wait up to 15 seconds for the server to come up
-        echo -ne "    Waiting for server"
-        for i in $(seq 1 15); do
-          if msb_reachable; then
-            echo ""
-            ok "Microsandbox server started"
-            break
-          fi
-          echo -n "."
-          sleep 1
-        done
-
-        if ! msb_reachable; then
-          echo ""
-          echo ""
-          echo -e "    ${BOLD}Could not auto-start the server.${RESET}"
-          echo -e "    Please start it manually in another terminal:"
-          echo -e "      ${BOLD}msb server start --dev${RESET}"
-          echo ""
-          fail "Microsandbox server not reachable at ${MSB_URL}"
-        fi
-        ;;
-    esac
-  fi
-
-elif [ "$RUNTIME" = "e2b" ]; then
-  E2B_KEY=""
-  if [ -f .env.local ]; then
-    E2B_KEY=$(grep "^E2B_API_KEY=" .env.local 2>/dev/null | cut -d= -f2) || true
-  fi
-  [ -z "$E2B_KEY" ] && E2B_KEY="${E2B_API_KEY:-}"
-
-  if [ -z "$E2B_KEY" ]; then
-    echo ""
-    echo -e "    E2B requires an API key."
-    echo -e "    Get one at: ${BLUE}https://e2b.dev/dashboard${RESET}"
-    echo ""
-    echo -n "    Paste your E2B API key: "
-    read -r E2B_KEY
-    if [ -z "$E2B_KEY" ]; then
-      fail "E2B_API_KEY is required for the E2B runtime."
-    fi
-    # Save to .env.local
-    if [ -f .env.local ]; then
-      # Remove existing E2B_API_KEY line if present
-      grep -v "^E2B_API_KEY=" .env.local > .env.local.tmp || true
-      mv .env.local.tmp .env.local
-      echo "E2B_API_KEY=$E2B_KEY" >> .env.local
-    else
-      echo "E2B_API_KEY=$E2B_KEY" > .env.local
-    fi
-  fi
-  ok "E2B API key configured"
 fi
+
+ok "Docker daemon is running"
+
 
 # ── 4. LLM Provider Credentials ──────────────────────────
 step "Checking LLM provider"
@@ -868,6 +681,8 @@ if [ -f .env.local ]; then
   grep -q "^AWS_ACCESS_KEY_ID=" .env.local 2>/dev/null && HAS_LLM_CREDS=true
   grep -q "^GOOGLE_VERTEX_PROJECT=" .env.local 2>/dev/null && HAS_LLM_CREDS=true
   grep -q "^OPENAI_BASE_URL=" .env.local 2>/dev/null && HAS_LLM_CREDS=true
+  # An explicit provider choice (including claude-cli) is a configured provider.
+  grep -q "^LLM_PROVIDER=" .env.local 2>/dev/null && HAS_LLM_CREDS=true
 fi
 
 # Also check env vars directly
@@ -876,6 +691,13 @@ fi
 [ -n "${AWS_PROFILE:-}" ] && HAS_LLM_CREDS=true
 [ -n "${GOOGLE_VERTEX_PROJECT:-}" ] && HAS_LLM_CREDS=true
 [ -n "${OPENAI_BASE_URL:-}" ] && HAS_LLM_CREDS=true
+[ -n "${LLM_PROVIDER:-}" ] && HAS_LLM_CREDS=true
+
+# A `claude` CLI on PATH is the app's last-resort provider (detectActiveProvider
+# in src/lib/llm/client.ts): no API key, it runs on the user's Claude login.
+HAS_CLAUDE_CLI=false
+command -v claude &>/dev/null && HAS_CLAUDE_CLI=true
+WANT_LOCAL=false
 
 if $HAS_LLM_CREDS; then
   ok "LLM credentials found"
@@ -887,9 +709,20 @@ else
   echo -e "    ${BOLD}2)${RESET} Amazon Bedrock ${DIM}— AWS credentials${RESET}"
   echo -e "    ${BOLD}3)${RESET} Google Vertex AI ${DIM}— GCP project${RESET}"
   echo -e "    ${BOLD}4)${RESET} OpenAI-compatible ${DIM}— custom endpoint${RESET}"
+  if $HAS_CLAUDE_CLI; then
+    echo -e "    ${BOLD}5)${RESET} Your Claude login ${DIM}— via the Claude CLI, no API key${RESET}  [${GREEN}detected${RESET}]"
+  else
+    echo -e "    ${BOLD}5)${RESET} Your Claude login ${DIM}— via the Claude CLI, no API key${RESET}  [${DIM}not found${RESET}]"
+  fi
+  echo -e "    ${BOLD}6)${RESET} Local model ${DIM}— MLX, llama.cpp, or Ollama; set up in a later step${RESET}"
   echo ""
-  echo -n "    Choose provider [1]: "
+  # Default to the Claude login when the CLI is present: it is the one choice
+  # that needs nothing typed, so it is also what --headless picks.
+  PROVIDER_DEFAULT="1"
+  $HAS_CLAUDE_CLI && PROVIDER_DEFAULT="5"
+  echo -n "    Choose provider [$PROVIDER_DEFAULT]: "
   read -r PROVIDER_CHOICE
+  PROVIDER_CHOICE="${PROVIDER_CHOICE:-$PROVIDER_DEFAULT}"
 
   # Ensure .env.local exists with runtime
   if [ ! -f .env.local ]; then
@@ -956,6 +789,24 @@ else
       echo "OPENAI_MODEL=$OAI_MODEL" >> .env.local
       ok "OpenAI-compatible credentials saved to .env.local"
       ;;
+    5)
+      if ! $HAS_CLAUDE_CLI; then
+        echo ""
+        echo -e "    Install the Claude CLI and log in, then re-run this script:"
+        echo -e "      ${BOLD}npm install -g @anthropic-ai/claude-code${RESET}"
+        echo -e "      ${BOLD}claude${RESET}   ${DIM}(log in once, then exit)${RESET}"
+        echo ""
+        fail "Claude CLI not found on PATH."
+      fi
+      # Nothing to write: with no API credentials configured, the app selects
+      # the CLI automatically, and a key added later in Settings takes over.
+      ok "Using your Claude login via $(command -v claude)"
+      echo -e "    ${DIM}If the CLI isn't logged in yet, run ${RESET}${BOLD}claude${RESET}${DIM} once before your first query.${RESET}"
+      ;;
+    6)
+      WANT_LOCAL=true
+      ok "Local model selected — you'll set up a backend in the local inference step"
+      ;;
     *)
       echo ""
       echo -e "    Get an API key at: ${BLUE}https://console.anthropic.com/settings/keys${RESET}"
@@ -967,6 +818,7 @@ else
         echo ""
       fi
       if [ -z "$API_KEY" ]; then
+        echo -e "    ${DIM}No key? Re-run and choose 5 (your Claude login) or 6 (a local model).${RESET}"
         fail "No API key provided. Cannot continue."
       fi
       echo "ANTHROPIC_API_KEY=$API_KEY" >> .env.local
@@ -1136,13 +988,21 @@ if command -v ollama &>/dev/null; then
   LOCAL_INSTALLED="${LOCAL_INSTALLED}ollama "
 fi
 
-if [ -n "$LOCAL_INSTALLED" ]; then
+if $WANT_LOCAL; then
+  # Chosen as the provider in step 4, so default to yes here.
   echo ""
-  echo -n "    Set up or reinstall a local inference backend? [y/N]: "
+  echo -n "    Set up a local inference backend now? [Y/n]: "
+  read -r SETUP_LOCAL
+  SETUP_LOCAL="${SETUP_LOCAL:-y}"
 else
-  echo -n "    Set up a local inference backend? [y/N]: "
+  if [ -n "$LOCAL_INSTALLED" ]; then
+    echo ""
+    echo -n "    Set up or reinstall a local inference backend? [y/N]: "
+  else
+    echo -n "    Set up a local inference backend? [y/N]: "
+  fi
+  read -r SETUP_LOCAL
 fi
-read -r SETUP_LOCAL
 
 case "$SETUP_LOCAL" in
   y|Y|yes|Yes|YES)
@@ -1236,24 +1096,11 @@ fi
 ok "Done"
 
 # ── 9. Build sandbox ─────────────────────────────────────
-if [ "$RUNTIME" = "docker" ]; then
-  step "Building Python sandbox"
+step "Building Python sandbox"
 
-  echo -e "    ${DIM}(rebuilds if Dockerfile changed, cached otherwise)${RESET}"
-  docker build -t hermetic-sandbox ./docker/sandbox/ -q
-  ok "Sandbox image ready"
-elif [ "$RUNTIME" = "microsandbox" ]; then
-  step "Preparing microsandbox"
-
-  # Pull custom image if set
-  if grep -q "^MICROSANDBOX_IMAGE=" .env.local 2>/dev/null; then
-    MSB_IMG=$(grep "^MICROSANDBOX_IMAGE=" .env.local | cut -d= -f2)
-    echo -e "    ${DIM}Pulling $MSB_IMG...${RESET}"
-    msb pull "$MSB_IMG" 2>/dev/null || true
-  fi
-
-  ok "Sandbox will be warmed up after server starts"
-fi
+echo -e "    ${DIM}(rebuilds if Dockerfile changed, cached otherwise)${RESET}"
+docker build -t hermetic-sandbox ./docker/sandbox/ -q
+ok "Sandbox image ready"
 
 # ── 10. Claude integration (MCP) ─────────────────────────
 # Hermetic doubles as an MCP server: Claude Desktop / Claude Code drive the
@@ -1279,62 +1126,16 @@ fi
 step "Starting app"
 
 echo ""
-echo -e "    ${DIM}Runtime: $RUNTIME${RESET}"
+echo -e "    ${DIM}Runtime: docker${RESET}"
 
-if [ "$RUNTIME" = "microsandbox" ]; then
-  # Start dev server in background so we can warm up the sandbox.
-  # `npm run` (not `npm install`) only EXECUTES the dev script — it never touches
-  # node_modules, so it can't reintroduce the pnpm/npm thrash. It's used here
-  # because npm strips `--` cleanly, whereas `pnpm run dev -- …` forwards the `--`
-  # into `next dev`, which then reads `-H` as the project directory and fails.
-  npm run dev -- -H 127.0.0.1 &
-  DEV_PID=$!
+echo -e "    ${GREEN}${BOLD}Ready!${RESET} Opening ${BLUE}http://localhost:3000${RESET}"
+echo -e "    ${DIM}Press Ctrl+C to stop.${RESET}"
+echo ""
 
-  # Wait for server to be ready
-  echo -ne "    Waiting for server"
-  for i in $(seq 1 30); do
-    if curl -s -o /dev/null http://localhost:3000 2>/dev/null; then
-      echo ""
-      ok "Server is up"
-      break
-    fi
-    echo -n "."
-    sleep 1
-  done
+# Open browser after a short delay (in background)
+(sleep 3 && open "http://localhost:3000" 2>/dev/null || xdg-open "http://localhost:3000" 2>/dev/null || true) &
 
-  # Warm up the sandbox (downloads get-pip.py, installs packages)
-  step "Installing Python packages"
-  echo -e "    ${DIM}(first time only — installs pandas, numpy, scipy, etc.)${RESET}"
-
-  WARMUP_RESULT=$(curl -s -X POST http://localhost:3000/api/runtimes/warmup 2>/dev/null || echo '{"status":"error"}')
-  if echo "$WARMUP_RESULT" | grep -q '"status":"ok"'; then
-    ok "Sandbox ready"
-  else
-    warn "Warmup failed — packages will be installed on first query"
-    echo -e "    ${DIM}$WARMUP_RESULT${RESET}"
-  fi
-
-  echo ""
-  echo -e "    ${GREEN}${BOLD}Ready!${RESET} Opening ${BLUE}http://localhost:3000${RESET}"
-  echo -e "    ${DIM}Press Ctrl+C to stop.${RESET}"
-  echo ""
-
-  # Open browser
-  (open "http://localhost:3000" 2>/dev/null || xdg-open "http://localhost:3000" 2>/dev/null || true) &
-
-  # Forward signals to the dev server and wait
-  trap "kill $DEV_PID 2>/dev/null" EXIT INT TERM
-  wait $DEV_PID
-else
-  echo -e "    ${GREEN}${BOLD}Ready!${RESET} Opening ${BLUE}http://localhost:3000${RESET}"
-  echo -e "    ${DIM}Press Ctrl+C to stop.${RESET}"
-  echo ""
-
-  # Open browser after a short delay (in background)
-  (sleep 3 && open "http://localhost:3000" 2>/dev/null || xdg-open "http://localhost:3000" 2>/dev/null || true) &
-
-  # `npm run` only executes the dev script (never installs), and npm strips `--`
-  # cleanly — `pnpm run dev -- …` forwards the `--` into `next dev`, which then
-  # treats `-H` as the project directory and fails.
-  exec npm run dev -- -H 127.0.0.1
-fi
+# `npm run` only executes the dev script (never installs), and npm strips `--`
+# cleanly — `pnpm run dev -- …` forwards the `--` into `next dev`, which then
+# treats `-H` as the project directory and fails.
+exec npm run dev -- -H 127.0.0.1

@@ -9,6 +9,9 @@ CI instead of the architecture rotting silently
 
 ## Running it
 
+From a checkout on macOS or Linux, with Docker and the sandbox image
+(Windows is not supported; README "Platform support").
+
 ```bash
 pnpm cli ask "<question>" <data.csv> [--out file.ndjson]
 pnpm cli render <history-id> --html <out-path>

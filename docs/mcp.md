@@ -35,6 +35,11 @@ support for one varies):
 }
 ```
 
+Platforms: the checkout server runs on macOS and Linux; running it from a
+checkout on Windows is not supported. The `.mcpb` declares Windows
+compatibility and ships Windows binaries, but no CI job or maintainer has run
+it there (README "Platform support").
+
 Prerequisites: `pnpm install` in the checkout; Docker with the sandbox image
 (`docker build -t hermetic-sandbox ./docker/sandbox/`); your usual LLM
 provider config for the `analyze` tool (same as the web app — including the

@@ -13,5 +13,5 @@
   "project": ["src/**/*.{ts,tsx}", "scripts/**/*.{mjs,mts}"],
   "tauri": false,
   "ignoreDependencies": ["tailwindcss", "@duckdb/duckdb-wasm", "@anthropic-ai/mcpb"],
-  "ignoreBinaries": ["hdiutil", "huggingface-cli", "llmfit", "ollama", "caffeinate"]
+  "ignoreBinaries": ["hdiutil", "huggingface-cli", "llmfit", "ollama", "caffeinate", "ffmpeg"]
 }
