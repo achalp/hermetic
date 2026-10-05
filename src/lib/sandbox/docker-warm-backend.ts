@@ -6,6 +6,7 @@ import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS, LARGE_DATA_TIMEOUT_MS } from 
 import { run, parseExecutionOutput, codeDoesRemoteIo } from "./docker-utils";
 import { buildTarArchive, type StageFile } from "./tar-stage";
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { sandboxMemoryRunArgs } from "./memory-budget";
 import { sandboxHardeningRunArgs } from "./hardening";
 import { logger, errMessage } from "@/lib/logger";
@@ -61,6 +62,26 @@ async function reapDeadWarmContainers(): Promise<void> {
   }
 }
 
+/**
+ * Remove this process's warm container when the process exits. The reaper above
+ * only runs at the NEXT warmup and only for dead pids, so a cleanly stopped
+ * server (SIGTERM → process.exit) left its container sleeping for up to 24h.
+ * Exit handlers cannot await, hence spawnSync. Installed once, and only after
+ * this process actually created a container.
+ */
+let exitRemovalInstalled = false;
+function installExitRemoval(): void {
+  if (exitRemovalInstalled) return;
+  exitRemovalInstalled = true;
+  process.on("exit", () => {
+    try {
+      spawnSync("docker", ["rm", "-f", CONTAINER_NAME], { stdio: "ignore", timeout: 10_000 });
+    } catch {
+      // best effort — the reaper reclaims it on the next warmup
+    }
+  });
+}
+
 export class DockerWarmBackend implements WarmSandboxBackend {
   async warmup(): Promise<void> {
     // Reclaim warm containers orphaned by crashed hermetic processes, then
@@ -101,6 +122,7 @@ export class DockerWarmBackend implements WarmSandboxBackend {
       throw new Error(`Failed to create the warm sandbox container: ${detail}`);
     }
 
+    installExitRemoval();
     logger.info("Warm Docker container created", { name: CONTAINER_NAME });
   }
 
