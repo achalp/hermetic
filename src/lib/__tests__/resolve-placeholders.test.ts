@@ -18,7 +18,7 @@ describe("resolveSpecPlaceholders — $result", () => {
   it("formats inline placeholders inside strings as humanized text", () => {
     const line = '{"text":"Revenue grew to $result:step_1_revenue this quarter"}';
     const out = resolveSpecPlaceholders(line, { step_1_revenue: 1234.5678 }, {});
-    expect(out).toContain("1234.5678");
+    expect(out).toContain("1,234.57"); // grouped, 2dp: no float dump in prose
     expect(out).not.toContain("$result");
   });
 
