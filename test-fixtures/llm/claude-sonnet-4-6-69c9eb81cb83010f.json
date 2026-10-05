@@ -1,0 +1,2590 @@
+{
+  "kind": "stream",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"includeRawChunks\":false,\"maxOutputTokens\":16384,\"prompt\":[{\"content\":\"You are a UI generator that outputs JSON.\\n\\nOUTPUT FORMAT (JSONL, RFC 6902 JSON Patch):\\nOutput JSONL (one JSON object per line) using RFC 6902 JSON Patch operations to build a UI tree.\\nEach line is a JSON patch operation (add, remove, replace). Start with /root, then stream /elements and /state patches interleaved so the UI fills in progressively as it streams.\\n\\nExample output (each line is a separate JSON object):\\n\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/root\\\",\\\"value\\\":\\\"main\\\"}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/main\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"children\\\":[\\\"child-1\\\",\\\"list\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/child-1\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/list\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"repeat\\\":{\\\"statePath\\\":\\\"/items\\\",\\\"key\\\":\\\"id\\\"},\\\"children\\\":[\\\"item\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/item\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items\\\",\\\"value\\\":[]}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/0\\\",\\\"value\\\":{\\\"id\\\":\\\"1\\\",\\\"title\\\":\\\"First Item\\\"}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/1\\\",\\\"value\\\":{\\\"id\\\":\\\"2\\\",\\\"title\\\":\\\"Second Item\\\"}}\\n\\nNote: state patches appear right after the elements that use them, so the UI fills in as it streams. ONLY use component types from the AVAILABLE COMPONENTS list below.\\n\\nINITIAL STATE:\\nSpecs include a /state field to seed the state model. Components with { $bindState } or { $bindItem } read from and write to this state, and $state expressions read from it.\\nCRITICAL: You MUST include state patches whenever your UI displays data via $state, $bindState, $bindItem, $item, or $index expressions, or uses repeat to iterate over arrays. Without state, these references resolve to nothing and repeat lists render zero items.\\nOutput state patches right after the ",
+  "chunks": [
+    {
+      "type": "stream-start",
+      "warnings": []
+    },
+    {
+      "type": "text-start",
+      "id": "msg_1791180511",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1791180511"
+        }
+      }
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "{\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "op"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "add"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"path\":\"/root"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "value\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "root"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "-"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "col"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\"}\n{\"op\":\"add\",\"path"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"/elements"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "/root"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "-col\",\"value\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "{\"type"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "Layout"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "Column"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"props"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":{\"gap"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "16"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "children\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "[\"scope"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "-"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "note"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"headline"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "-grid"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"dc"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "-main"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\"]"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "}}\n{\"op\":\"add\",\"path"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"/elements/scope-note\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "value\":{\"type\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "Annotation"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"props\":{\"icon"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"info\",\"title"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"Analysis"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " Scope\",\"severity"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"info\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "content\":\"Monthly"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " M"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "RR components"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " across"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " Starter, Pro, and Enterprise plans,"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " Jan–"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "Dec 2024. Each"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " monthly"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " aggregate"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " combines"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " plan"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "-level rows"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " with uniform"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " we"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "ighting."
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\"},\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "children\":[]}}\n{\"op\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "add\",\"path\":\"/elements/headline"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "-grid\",\"value\":{\"type\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "LayoutGrid\",\"props\":{\"columns"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "3,\"gap\":12"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "},\"children\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "[\"tile"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "-new"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "-mrr\",\"tile-trend"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "tile-peak\"]}}\n{\"op"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"add\",\"path\":\"/elements/"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "tile-new-mrr\",\"value"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":{\"type\":\"StatCard\",\"props"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":{\"label"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"Total New M"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "RR\",\"value\":\"$result:"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "total_new_mrr_u"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "sd\",\"format"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"currency\",\"precision"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":0}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ",\"children\":[]}}\n{\"op"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"add\",\"path\":\"/elements/"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "tile-trend\",\"value\":{\"type"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"StatCard\",\"props\":{\"label"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"Net New MRR Trend"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " (per"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " month"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ")\",\"value\":\"$finding:net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_new_mrr_trend."
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "slope_per_period\",\"format\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "currency\",\"precision\":0"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "description"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"OLS slope"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ","
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " Jan"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "–"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "Dec 2024\"}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ",\"children\":[]}}\n{\"op"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"add\",\"path\":\"/elements/"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "tile-peak\",\"value\":{\"type"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"StatCard\",\"props\":{\"label"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"Net New MRR Peak\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "value\":\"$finding:net_new"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_mrr_peak.value\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "format\":\"currency\",\"precision\":0,\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "description\":\"$"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "finding:net_new_mrr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_peak.period\"},\"children\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "[]}}\n{\"op\":\"add\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "path\":\"/elements/dc"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "-main\",\"value\":{\"type\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "Data"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "Controller\",\"props\":{\"source"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":{\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "stat"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "ePath\":\"/datasets/main\"}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ",\"filters"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ":[{\"key"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"plan\",\"column"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"plan\",\"bind"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "To"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\"/"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "filters"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "/plan\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "label"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"Plan\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "allow"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "All"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":true}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "],\"pipeline"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ":[{\"op"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"filter\"}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "],\"outputs"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":[{\"stat"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "ePath\":\"/computed/monthly"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_components"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"pipeline"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":[{\"op\":\"group"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "By"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"columns"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "[\"month"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\"],\"aggreg"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "ations\":[{\"column"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"new"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_mrr\",\"fn"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"sum\",\"as"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"new_mrr\"},"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "{\"column\":\"expansion_mrr\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "fn\":\"sum\",\"as\":\"expansion_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "mrr\"},{\"column\":\"churn"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_mrr\",\"fn\":\"sum\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "as\":\"churn_mrr\"},"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "{\"column\":\"customers"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"fn\":\"sum"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"as\":\"customers\"}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "]},"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "{\"op\":\"sort\",\"column"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"month\",\"direction\":\"asc\"}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "],\"format"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "null"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "},"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "{\"statePath\":\"/computed/plan"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_series"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"pipeline\":[{\"op\":\"sort"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"column\":\"month"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"direction\":\"asc\"}],\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "format\":null},{\"statePath\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\"/computed/stats"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"pipeline\":[{\"op\":\"group"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "By\",\"columns\":[]"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ",\"aggregations\":[{\"column\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "new_mrr\",\"fn\":\"sum"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"as\":\"total"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_new_mrr\"},{\"column"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"expansion_mrr\",\"fn\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "sum\",\"as\":\"total_expansion_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "mrr\"},{\"column\":\"churn"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_mrr\",\"fn\":\"sum\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "as\":\"total_churn_mr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "r\"}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "]}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "],\"format\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "stats"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\"}]}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "scope"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "note\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\"}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ",\"children\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "[\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "charts"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "-row"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"bottom"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "-row\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "narrative"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\"]"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "}}\n{\"op\":\"add\",\"path"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"/state"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "/filters"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "/plan\",\"value\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "All"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\"}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\n{\"op\":\"add\",\"path\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\"/state/datasets"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "/main\",\"value\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ":["
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "]}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\n{\"op\":\"add\",\"path\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\"/state/computed/monthly_components"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"value\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "$"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "chart"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "Data:monthly"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_mr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "r_components\"}\n{\"op\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "add\",\"path\":\"/state/computed"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "/plan_series\",\"value\":\"$"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "chartData:plan_monthly"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_mrr\"}\n{\"op\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "add\",\"path\":\"/state/computed"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "/cum"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "ulative\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "value\":\"$chartData:cumulative"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_mr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "r\"}\n{\"op\":\"add\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "path\":\"/state/computed/stats"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"value\":\"$chartData:stats"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\"}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\n{\"op\":\"add\",\"path\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\"/elements"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "/charts-row\",\"value\":{\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "type\":\"LayoutRow"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"props\":{\"gap"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":16},\"children\":[\"chart"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "-components"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"chart-cum"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "ulative\"]"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "}}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\n{\"op\":\"add\",\"path\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\"/elements/chart-components\",\"value"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":{\"type\":\"Area"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "Chart\",\"props\":{\"title"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"Monthly M"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "RR Components\",\"data"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":{\"$"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "state\":\"/computed"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "/monthly_components\"},\"x"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "key"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"month\",\"y_keys"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":[\"new_mrr\",\"expansion"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_mrr\",\"churn_mr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "r\"]"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ",\"st"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "acked\":false,\"color_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "map"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":{\"new_mrr\":\"emer"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "ald\",\"expansion_mrr\":\"ind"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "igo\",\"churn_mrr\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "rose"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\"},\"label"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_map"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":{\"new_mrr\":\"New"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " MRR\",\"expansion_mrr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"Expansion MRR\",\"ch"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "urn_mrr\":\"Churn"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " MRR\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "}},\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "children\":[]}}\n{\"op\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "add\",\"path\":\"/elements/chart"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "-cumulative\",\"value\":{\"type"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"AreaChart\",\"props\":{\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "title\":\"Cumulative Net New"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " MRR\",\"data\":{\"$"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "state\":\"/computed/cumulative\"}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ",\"x_key\":\"period"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"y_keys\":[\"cum"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "ulative_net_mrr\"],\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "color"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_map\":{\"cumulative_net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_mrr\":\"violet"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\"},\"label_map\":{\"cum"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "ulative_net_mrr\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "Cumulative Net MRR\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "}},\"children\":[]}}\n{\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "op\":\"add\",\"path\":\"/elements"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "/bottom"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "-row\",\"value\":{\"type\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "LayoutRow\",\"props\":{\"gap"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":16},\"children\":[\"chart"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "-plan"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "-breakdown"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"decom"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "p"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "-stats"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\"]"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "}}\n{\"op\":\"add\",\"path"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"/elements/chart-plan-"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "breakdown\",\"value\":{\"type\":\"Line"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "Chart\",\"props\":{\"title\":\"Net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " New MRR by Plan\",\"data"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":{\"$state\":\"/computed/"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "plan_series\"},\"x_key"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"month\",\"y_keys\":[\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_new_mrr\"]"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ",\"show"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_dots"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":true"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ",\"color_map\":{\"net_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "new_mrr\":\"ind"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "igo\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "}},\"children\":[]}}\n{\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "op\":\"add\",\"path\":\"/elements"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "/decomp-stats\",\"value\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "{\"type\":\"LayoutColumn"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"props\":{\"gap\":12"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "},\"children\":[\"tile"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "-expansion"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "tile-churn\",\"tile-net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "split"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "-compare"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\"]}}\n{\"op\":\"add\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "path\":\"/elements/tile-expansion"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"value\":{\"type\":\"StatCard"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"props\":{\"label\":\"Total"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " Expansion MRR\",\"value\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "$result:total_expansion_mr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "r_usd\",\"format\":\"currency"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"precision\":0,\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "description\":\"$"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "result:mr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "r_expansion"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_share"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "p"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "ct%"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " of gross"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " adds"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\"},\"children\":[]}}\n{\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "op\":\"add\",\"path\":\"/elements"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "/tile-churn\",\"value\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "{\"type\":\"StatCard\",\"props\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "{\"label\":\"Total Chur"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "ned MRR\",\"value\":\"$"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "result:total_churn_mr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "r_usd\",\"format\":\"currency"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"precision\":0,\"description\":\"$"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "result:mr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "r_churn_to"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_gross"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_p"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "ct% ch"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "urn-"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "to-gross ratio"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\"},\"children\":[]}}\n{\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "op\":\"add\",\"path\":\"/elements"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "/tile-net\",\"value\":{\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "type\":\"StatCard\",\"props\":{\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "label\":\"Total"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " Net New"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " MRR\",\"value\":\"$result"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ":total_net_new_mr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "r_usd\",\"format\":\"currency"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"precision\":0}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ",\"children\":[]}}\n{\"op"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"add\",\"path\":\"/elements/"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "split-compare\",\"value\":{\"type"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"T"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "rend"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "Indic"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "ator\",\"props\":{\"label\":\"Early"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " vs Late Half"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " Median"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " Net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " MRR\",\"current"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "$result"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ":net_new_mrr_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "late"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_median"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"previous"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"$result:net_new_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "mrr_early_median\",\"format"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"currency\",\"precision\":0}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ",\"children\":[]}}\n{\"op"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"add\",\"path\":\"/elements/"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "narrative"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"value\":{\"type\":\"Text"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "Block\",\"props\":{\"variant"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\":\"insight"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\",\"content\":\"Net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " new MRR tr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "ended $"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "finding"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ":net_new_mrr_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "trend.direction"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " across"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " Jan"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "–"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "Dec 2024,"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " with an"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " O"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "LS slope of $finding:net_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "new_mrr_trend.slope"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_per_period per"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " month ("
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "p"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " ="
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " $"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "finding:net_new_mrr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_trend"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ".p_value). The"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " series"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " peaked"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " at $finding:net_new_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "mrr_peak.value in"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " $"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "finding:net_new_mrr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_peak.period and"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " closed"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " the"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " period"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " at $finding:net_new_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "mrr_current"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_state.value in"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " $finding:net_new_mr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "r_current_state.period —"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " $"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "finding:net_new_mrr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_current"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_state.pct_from_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "peak%"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " from"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " that"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " peak."
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " Comparing"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " the"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " first"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " half to the second half of"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " the window,"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " the median"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " shifted"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " from $finding:net_new_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "mrr_split"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_comparison.early_median to $"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "finding:net_new_mrr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_split_comparison.late_median"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " ("
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "a"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " $finding:net_new_mr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "r_split_comparison.multiplier"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "×"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " change"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ")."
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " Gross"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " adds were split"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " between new"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "-customer acquisition ($"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "finding:mr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "r_gross_adds_decomposition"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": ".new"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_mrr) and expansion"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " from"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " existing customers ($finding:mrr_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "gross_adds_decomposition.expansion"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_mrr)."
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " Plan"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "-level distributions"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " are stat"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "istically heter"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "ogeneous ($"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "finding:plan_net_mrr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "_heterogeneity.test,"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " p"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " = $finding:plan_net_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "mrr_heterogeneity."
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "p_value), meaning"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " the three"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " plans follow"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " meaning"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "fully different net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " M"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "RR traject"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "ories."
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " No"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " single"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "-"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "period step"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " change was detected"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " in the net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " new"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": " MRR series"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "."
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1791180511",
+      "delta": "\"},\"children\":[]}}"
+    },
+    {
+      "type": "text-end",
+      "id": "msg_1791180511",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1791180511"
+        }
+      }
+    },
+    {
+      "type": "finish",
+      "finishReason": {
+        "unified": "stop"
+      },
+      "usage": {
+        "inputTokens": {
+          "total": 30538,
+          "noCache": 7023,
+          "cacheRead": 23515
+        },
+        "outputTokens": {
+          "total": 2225,
+          "text": 2225,
+          "reasoning": 0
+        },
+        "raw": {
+          "input_tokens": 30538,
+          "input_tokens_details": {
+            "cached_tokens": 23515
+          },
+          "output_tokens": 2225
+        }
+      },
+      "providerMetadata": {
+        "openai": {
+          "responseId": null
+        }
+      }
+    }
+  ]
+}
