@@ -115,7 +115,7 @@ cd hermetic
 ./start.sh
 ```
 
-The setup script checks prerequisites, installs dependencies, sets up the Docker sandbox, and starts the dev server. It will prompt you for an API key. The script only knows API-key providers, so if you will use the [Claude CLI](#claude-cli-use-your-own-claude-login-no-api-key) instead, follow [Manual Setup](#manual-setup) and leave the key empty: a logged-in `claude` on your `PATH` is detected automatically. For CI or scripted setups, `./start.sh --headless` (or `-y`) accepts defaults and skips every interactive question.
+The setup script checks prerequisites, installs dependencies, sets up the Docker sandbox, and starts the dev server. It then asks which model to use: an API key (Anthropic, Bedrock, Vertex, or an OpenAI-compatible endpoint), your own Claude login through the [Claude CLI](#claude-cli-use-your-own-claude-login-no-api-key) with no key to paste, or a local model. When `claude` is on your `PATH`, the Claude login is the default. For CI or scripted setups, `./start.sh --headless` (or `-y`) accepts defaults and skips every interactive question.
 
 It also offers to connect hermetic to Claude Desktop / Claude Code as an MCP server — see [Using from Claude](#using-from-claude-mcp-server).
 
