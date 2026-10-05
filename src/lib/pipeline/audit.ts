@@ -26,7 +26,9 @@ export interface AuditBundle {
 const AuditFinding = z.object({
   severity: z.enum(["high", "medium", "low"]),
   claim: z.string(),
-  evidence: z.string(),
+  // Models sometimes omit evidence on an otherwise sound finding. Dropping the
+  // whole audit for it is how the README capture lost 3 of 5 audits.
+  evidence: z.string().default(""),
 });
 const AuditVerdict = z.object({
   verdict: z.enum(["clean", "issues"]),
@@ -76,15 +78,80 @@ export function buildAuditPrompt(bundle: AuditBundle): string {
   return `Audit this analysis bundle:\n${json}`;
 }
 
-export function parseAuditResponse(text: string): z.infer<typeof AuditVerdict> | null {
+type Verdict = z.infer<typeof AuditVerdict>;
+export type AuditParse =
+  | { ok: true; verdict: Verdict; dropped: number; salvaged: boolean }
+  | { ok: false; reason: string };
+
+const FINDING_OBJECT_RE = /\{\s*"severity"\s*:\s*"(?:high|medium|low)"[^{}]*\}/g;
+
+/** Keep every finding that validates; count the rest instead of failing. */
+function keepValidFindings(raw: unknown[]): { findings: Verdict["findings"]; dropped: number } {
+  const findings: Verdict["findings"] = [];
+  let dropped = 0;
+  for (const f of raw.slice(0, 20)) {
+    const r = AuditFinding.safeParse(f);
+    if (r.success) findings.push(r.data);
+    else dropped++;
+  }
+  return { findings, dropped };
+}
+
+/**
+ * Parse the audit model's reply, saying WHY when it cannot. One malformed
+ * finding no longer voids the verdict, and a reply cut off mid-JSON (the
+ * output cap on a long audit) keeps the findings that were complete.
+ */
+export function parseAuditDetailed(text: string): AuditParse {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
-  if (start === -1 || end <= start) return null;
-  try {
-    return AuditVerdict.parse(JSON.parse(text.slice(start, end + 1)));
-  } catch {
-    return null;
+  let obj: unknown;
+  if (start !== -1 && end > start) {
+    try {
+      obj = JSON.parse(text.slice(start, end + 1));
+    } catch {
+      obj = undefined;
+    }
   }
+  if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+    const o = obj as Record<string, unknown>;
+    const raw = Array.isArray(o.findings) ? o.findings : [];
+    const { findings, dropped } = keepValidFindings(raw);
+    const verdict =
+      o.verdict === "clean" || o.verdict === "issues"
+        ? o.verdict
+        : findings.length > 0
+          ? "issues"
+          : undefined;
+    if (!verdict)
+      return { ok: false, reason: `no valid verdict (got ${JSON.stringify(o.verdict)})` };
+    if (verdict === "issues" && findings.length === 0 && dropped > 0) {
+      return { ok: false, reason: `all ${dropped} findings failed validation` };
+    }
+    return { ok: true, verdict: { verdict, findings }, dropped, salvaged: false };
+  }
+  // Not one JSON object: salvage the complete finding objects, if any.
+  const pieces: unknown[] = [];
+  for (const m of text.matchAll(FINDING_OBJECT_RE)) {
+    try {
+      pieces.push(JSON.parse(m[0]));
+    } catch {
+      /* incomplete piece */
+    }
+  }
+  const { findings, dropped } = keepValidFindings(pieces);
+  if (findings.length > 0) {
+    return { ok: true, verdict: { verdict: "issues", findings }, dropped, salvaged: true };
+  }
+  return {
+    ok: false,
+    reason: start === -1 ? "no JSON object in the reply" : "reply is not valid JSON",
+  };
+}
+
+export function parseAuditResponse(text: string): Verdict | null {
+  const r = parseAuditDetailed(text);
+  return r.ok ? r.verdict : null;
 }
 
 /** Run the audit call. Never throws — a broken audit returns null. */
@@ -100,9 +167,26 @@ export async function runAudit(bundle: AuditBundle): Promise<AuditResult | null>
         maxOutputTokens: 4000,
       })
     );
-    const parsed = parseAuditResponse(result.text);
-    if (!parsed) return null;
-    return { ...parsed, at: Date.now(), model };
+    const parsed = parseAuditDetailed(result.text);
+    const finishReason = (result as { finishReason?: string }).finishReason;
+    if (!parsed.ok) {
+      // The route tells the user to "see server logs" — so say something there.
+      logger.warn("audit response rejected", {
+        reason: parsed.reason,
+        finishReason,
+        chars: result.text.length,
+        head: result.text.slice(0, 300),
+      });
+      return null;
+    }
+    if (parsed.dropped > 0 || parsed.salvaged) {
+      logger.warn("audit response partly malformed", {
+        dropped: parsed.dropped,
+        salvaged: parsed.salvaged,
+        finishReason,
+      });
+    }
+    return { ...parsed.verdict, at: Date.now(), model };
   } catch (err) {
     logger.warn("audit run failed", {
       error: errMessage(err),
