@@ -212,6 +212,14 @@ export function InvestigateProgress({ spec }: { spec: Spec | null }) {
   );
 }
 
+/** Housekeeping notes from the grounding checks, collapsed, for BELOW the
+ *  dashboard. Renders null when there are none. */
+export function SummaryNotes({ spec }: { spec: Spec | null }) {
+  const g = readStreamState(spec).__grounding;
+  if (!g || !hasGroundingAdvisories(g, "minor")) return null;
+  return <GroundingAdvisories grounding={g} tier="minor" />;
+}
+
 /**
  * Surfaces the two Investigate trust signals the server emits as state:
  *   /state/__dataQuality — degraded / failed / dropped sub-questions
@@ -231,7 +239,9 @@ export function InvestigationCaveats({ spec }: { spec: Spec | null }) {
   // Findings-era advisory fields (declared-findings spec §3.4/§3.5) — a
   // report can carry them even when every figure traced (ok === true), so
   // they gate independently of hasUngrounded.
-  const hasAdvisories = !!g && hasGroundingAdvisories(g);
+  // Only MATERIAL advisories go above the dashboard; housekeeping notes render
+  // collapsed below it (SummaryNotes).
+  const hasAdvisories = !!g && hasGroundingAdvisories(g, "material");
   if (!hasDq && !hasUngrounded && !hasAdvisories) return null;
 
   return (
@@ -252,9 +262,7 @@ export function InvestigationCaveats({ spec }: { spec: Spec | null }) {
           code.
         </div>
       )}
-      {/* Self-contained, plain-language "A few notes on this summary" block with a
-          technical-details reveal (redesign) — no external warn box / header. */}
-      {hasAdvisories && <GroundingAdvisories grounding={g!} />}
+      {hasAdvisories && <GroundingAdvisories grounding={g!} tier="material" />}
       {hasDq && (
         <div
           className="border border-border-default px-3 py-2 text-sm"

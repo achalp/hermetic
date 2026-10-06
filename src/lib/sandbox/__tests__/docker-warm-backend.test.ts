@@ -15,6 +15,12 @@ vi.mock("@/lib/sandbox/docker-utils", async (importOriginal) => {
   };
 });
 
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return { ...actual, spawnSync: vi.fn() };
+});
+
+import { spawnSync } from "node:child_process";
 import { DockerWarmBackend } from "@/lib/sandbox/docker-warm-backend";
 import { run, parseExecutionOutput } from "@/lib/sandbox/docker-utils";
 import { resetDaemonCpuCacheForTests } from "@/lib/sandbox/hardening";
@@ -244,4 +250,25 @@ it("L3: a nonzero-exit FALLBACK write does not teach the skip set", async () => 
   mockedRun.mockClear();
   await backend.writeFiles([weird]);
   expect(mockedRun.mock.calls.some(([, a]) => a.join(" ").includes("cat > "))).toBe(true);
+});
+
+describe("DockerWarmBackend — the container goes when the process does", () => {
+  it("removes this process's warm container on exit, registering the hook once", async () => {
+    // Fresh module: the hook is once-per-process, and earlier tests warmed up.
+    vi.resetModules();
+    const { DockerWarmBackend: Fresh } = await import("@/lib/sandbox/docker-warm-backend");
+    const before = process.listeners("exit").length;
+    const backend = new Fresh();
+    await backend.warmup();
+    await backend.warmup();
+    const added = process.listeners("exit").slice(before);
+    expect(added).toHaveLength(1);
+    (added[0] as () => void)();
+    expect(vi.mocked(spawnSync)).toHaveBeenCalledWith(
+      "docker",
+      ["rm", "-f", `hermetic-warm-${process.pid}`],
+      expect.objectContaining({ timeout: 10_000 })
+    );
+    process.removeListener("exit", added[0] as () => void);
+  });
 });

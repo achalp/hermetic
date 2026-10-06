@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   buildAuditPrompt,
   parseAuditResponse,
+  parseAuditDetailed,
   AUDIT_BUNDLE_MAX_BYTES,
   runAudit,
   auditHistoryEntry,
@@ -22,6 +23,7 @@ vi.mock("@/lib/pipeline/grounding", () => ({
 }));
 
 import { generateText } from "ai";
+import { logger } from "@/lib/logger";
 import { loadHistoryEntry, saveHistoryAudit } from "@/lib/history/storage";
 
 const mockedGen = vi.mocked(generateText);
@@ -71,6 +73,37 @@ describe("audit prompt/parse (composer-sight spec §3)", () => {
   });
 });
 
+describe("audit parse — keep what is sound, say why when nothing is", () => {
+  it("keeps a finding with no evidence instead of voiding the audit", () => {
+    const r = parseAuditResponse(
+      '{"verdict":"issues","findings":[{"severity":"high","claim":"1.3-fold is 1.26"}]}'
+    );
+    expect(r?.findings).toEqual([{ severity: "high", claim: "1.3-fold is 1.26", evidence: "" }]);
+  });
+
+  it("drops only the malformed finding", () => {
+    const r = parseAuditDetailed(
+      '{"verdict":"issues","findings":[{"severity":"urgent","claim":"x"},{"severity":"low","claim":"y","evidence":"z"}]}'
+    );
+    expect(r.ok && r.verdict.findings.map((f) => f.claim)).toEqual(["y"]);
+    expect(r.ok && r.dropped).toBe(1);
+  });
+
+  it("salvages complete findings from a reply cut off mid-JSON", () => {
+    const r = parseAuditDetailed(
+      '{"verdict":"issues","findings":[{"severity":"medium","claim":"a","evidence":"b"},{"severity":"low","claim":"trunc'
+    );
+    expect(r.ok && r.salvaged).toBe(true);
+    expect(r.ok && r.verdict.findings.map((f) => f.claim)).toEqual(["a"]);
+  });
+
+  it("says why it rejects a reply", () => {
+    const r = parseAuditDetailed("no json at all");
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.reason).toContain("no JSON");
+  });
+});
+
 describe("runAudit", () => {
   it("returns the parsed verdict stamped with at/model on a clean response", async () => {
     mockedGen.mockResolvedValue({ text: '{"verdict":"clean","findings":[]}' } as never);
@@ -81,9 +114,15 @@ describe("runAudit", () => {
     expect(mockedGen).toHaveBeenCalledTimes(1);
   });
 
-  it("returns null when the model response cannot be parsed", async () => {
-    mockedGen.mockResolvedValue({ text: "not json" } as never);
+  it("returns null when the model response cannot be parsed — and logs why", async () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    mockedGen.mockResolvedValue({ text: "not json", finishReason: "stop" } as never);
     expect(await runAudit({ question: "q" })).toBeNull();
+    expect(warn).toHaveBeenCalledWith(
+      "audit response rejected",
+      expect.objectContaining({ reason: expect.any(String), head: "not json" })
+    );
+    warn.mockRestore();
   });
 
   it("never throws — an LLM error returns null", async () => {

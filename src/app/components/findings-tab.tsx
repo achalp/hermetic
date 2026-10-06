@@ -198,15 +198,22 @@ export function FindingsTab({
   );
 }
 
-/** True when the report carries any of the new advisory fields (all optional
- *  — absent on reports persisted before 2026-08-06). */
-export function hasGroundingAdvisories(g: GroundingReport): boolean {
-  return (
-    (g.contradictions?.length ?? 0) > 0 ||
-    (g.unnarratedFindings?.length ?? 0) > 0 ||
-    !!g.questionPrimaryMiss ||
-    (g.findingIssues?.length ?? 0) > 0
-  );
+/**
+ * Which advisories to show. MATERIAL ones can change how a reader takes the
+ * answer (a contradiction; the answering number missing from the headline) and
+ * belong above the dashboard. MINOR ones are housekeeping (figures computed but
+ * not narrated, trimmed sentences, lint notes) — on the README reel they opened
+ * EVERY dashboard, above the answer, under a heading that called them "small
+ * things". "all" is for the artifacts Trail and the notebook.
+ */
+export type AdvisoryTier = "all" | "material" | "minor";
+
+/** True when the report carries advisories of `tier` (all fields optional —
+ *  absent on reports persisted before 2026-08-06). */
+export function hasGroundingAdvisories(g: GroundingReport, tier: AdvisoryTier = "all"): boolean {
+  const material = (g.contradictions?.length ?? 0) > 0 || !!g.questionPrimaryMiss;
+  const minor = (g.unnarratedFindings?.length ?? 0) > 0 || (g.findingIssues?.length ?? 0) > 0;
+  return tier === "material" ? material : tier === "minor" ? minor : material || minor;
 }
 
 /**
@@ -216,9 +223,17 @@ export function hasGroundingAdvisories(g: GroundingReport): boolean {
  * the copy — and its §6 constraints — exist exactly once. Renders null when
  * the report predates the fields.
  */
-export function GroundingAdvisories({ grounding }: { grounding: GroundingReport }) {
+export function GroundingAdvisories({
+  grounding,
+  tier = "all",
+}: {
+  grounding: GroundingReport;
+  tier?: AdvisoryTier;
+}) {
+  const showMaterial = tier !== "minor";
+  const showMinor = tier !== "material";
   const items: string[] = [];
-  for (const c of grounding.contradictions ?? []) {
+  for (const c of showMaterial ? (grounding.contradictions ?? []) : []) {
     items.push(`Something didn't line up: ${c}.`);
   }
   // COUNT up top, identifiers behind the reveal. This line used to join the raw
@@ -229,19 +244,19 @@ export function GroundingAdvisories({ grounding }: { grounding: GroundingReport 
   // language. The two-tier idiom this component already documents (human rollup
   // above, raw diagnostics under "technical details") now applies to every site
   // here, not just findingIssues.
-  const unnarrated = grounding.unnarratedFindings ?? [];
+  const unnarrated = showMinor ? (grounding.unnarratedFindings ?? []) : [];
   if (unnarrated.length > 0) {
     items.push(
       `${unnarrated.length} computed figure${unnarrated.length === 1 ? " was" : "s were"} not called out in the write-up.`
     );
   }
-  if (grounding.questionPrimaryMiss) {
+  if (showMaterial && grounding.questionPrimaryMiss) {
     items.push(
       `The number that answers your question (${humanizeFindingId(grounding.questionPrimaryMiss)}) isn't shown as a headline stat.`
     );
   }
   const details = [
-    ...(grounding.findingIssues ?? []),
+    ...(showMinor ? (grounding.findingIssues ?? []) : []),
     ...(unnarrated.length > 0 ? [`Computed but not narrated: ${unnarrated.join(", ")}`] : []),
   ];
   if (items.length === 0 && details.length === 0) return null;
@@ -249,16 +264,62 @@ export function GroundingAdvisories({ grounding }: { grounding: GroundingReport 
   // diagnostics ($finding: bindings, lint kinds) live behind a "technical
   // details" reveal — same two-tier idiom as the redesigned data-check callouts.
   const rollup = summarizeFindingIssues(details);
+  const list = (
+    <ul className="mt-2 flex list-disc flex-col gap-1 pl-5 text-xs">
+      {[...items, ...rollup].map((t, i) => (
+        <li key={i}>{t}</li>
+      ))}
+    </ul>
+  );
+  const technical = details.length > 0 && (
+    <details className="mt-2 text-xs">
+      <summary
+        className="cursor-pointer select-none opacity-80 hover:opacity-100"
+        style={{ textDecoration: "underline", textUnderlineOffset: 2 }}
+      >
+        Show the technical details
+      </summary>
+      <ul className="mt-1 flex flex-col gap-0.5 text-t-tertiary">
+        {details.map((f, i) => (
+          <li key={i}>{f}</li>
+        ))}
+      </ul>
+    </details>
+  );
+  const boxStyle = {
+    borderRadius: "var(--radius-card)",
+    borderColor: "var(--color-border)",
+    background: "var(--color-surface-2, transparent)",
+    color: "var(--color-text-secondary)",
+  };
+  if (tier === "minor") {
+    // Collapsed by default, below the dashboard: available, never in the way.
+    const n = items.length + rollup.length;
+    return (
+      <details className="mt-3 border p-3 text-sm" style={boxStyle}>
+        <summary className="cursor-pointer select-none font-medium">
+          Notes on this summary ({n})
+        </summary>
+        <p className="mt-1 text-xs opacity-90">
+          Automatic consistency checks noted these. None of them change the results.
+        </p>
+        {list}
+        {technical}
+      </details>
+    );
+  }
+  if (tier === "material") {
+    return (
+      <div className="mt-1 border p-3 text-sm" style={boxStyle}>
+        <p className="font-medium" style={{ color: "var(--color-text-primary)" }}>
+          Worth checking before you rely on this
+        </p>
+        {list}
+      </div>
+    );
+  }
   return (
-    <div
-      className="mt-1 border p-3 text-sm"
-      style={{
-        borderRadius: "var(--radius-card)",
-        borderColor: "var(--color-border)",
-        background: "var(--color-surface-2, transparent)",
-        color: "var(--color-text-secondary)",
-      }}
-    >
+    <div className="mt-1 border p-3 text-sm" style={boxStyle}>
       <p className="font-medium" style={{ color: "var(--color-text-primary)" }}>
         A few notes on this summary
       </p>
@@ -266,26 +327,8 @@ export function GroundingAdvisories({ grounding }: { grounding: GroundingReport 
         While putting this together, a few automatic consistency checks turned up small things worth
         mentioning. None of them change the results — they&rsquo;re just for transparency:
       </p>
-      <ul className="mt-2 flex list-disc flex-col gap-1 pl-5 text-xs">
-        {[...items, ...rollup].map((t, i) => (
-          <li key={i}>{t}</li>
-        ))}
-      </ul>
-      {details.length > 0 && (
-        <details className="mt-2 text-xs">
-          <summary
-            className="cursor-pointer select-none opacity-80 hover:opacity-100"
-            style={{ textDecoration: "underline", textUnderlineOffset: 2 }}
-          >
-            Show the technical details
-          </summary>
-          <ul className="mt-1 flex flex-col gap-0.5 text-t-tertiary">
-            {details.map((f, i) => (
-              <li key={i}>{f}</li>
-            ))}
-          </ul>
-        </details>
-      )}
+      {list}
+      {technical}
     </div>
   );
 }

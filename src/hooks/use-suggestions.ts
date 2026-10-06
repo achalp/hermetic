@@ -7,7 +7,7 @@
  *
  * Two independent streams:
  * 1. INITIAL suggestions for a fresh source: instant heuristics, upgraded by
- *    an LLM call (falls back to heuristics on failure or an 8s timeout).
+ *    an LLM call whenever it answers (given up after LLM_SUGGEST_TIMEOUT_MS).
  *    Keyed on the source (csv id / warehouse id) so switching sources resets.
  * 2. FOLLOW-UP suggestions after each completed analysis: fires once per
  *    (source + question) key, enriched with the analysis's result summary
@@ -29,6 +29,9 @@ import {
 } from "@/lib/suggest-questions";
 import { extractSpecComponentTypes } from "@/lib/spec-summary";
 import { getArtifacts, getFollowUpSuggestions, getSuggestions } from "@/app/lib/api";
+
+/** How long to wait for LLM suggestions before keeping the heuristics. */
+export const LLM_SUGGEST_TIMEOUT_MS = 45_000;
 
 export function useSuggestions(args: {
   schema: CSVSchema | null;
@@ -58,7 +61,6 @@ export function useSuggestions(args: {
   }, [schema, warehouse.isConnected, warehouse.tableSchemas]);
 
   const [llmSuggestions, setLlmSuggestions] = useState<string[] | null>(null);
-  const [llmFailed, setLlmFailed] = useState(false);
   const [prevSchemaKey, setPrevSchemaKey] = useState<string | null>(null);
   const schemaKey = schema
     ? `csv:${schema.csv_id}`
@@ -69,7 +71,6 @@ export function useSuggestions(args: {
     setPrevSchemaKey(schemaKey);
     if (schemaKey) {
       setLlmSuggestions(null);
-      setLlmFailed(false);
       args.onSourceChange?.();
     }
   }
@@ -97,27 +98,23 @@ export function useSuggestions(args: {
     return null;
   }, [schema, warehouse.isConnected, warehouse.tableSchemas]);
 
-  // Fetch LLM-powered suggestions; fall back to heuristics on failure or 8s timeout
+  // Upgrade the heuristics with LLM suggestions whenever they arrive. The
+  // heuristics are already on screen, so a slow model costs nothing — the old
+  // 8s abort threw away the answer the Claude CLI typically returns at ~20s,
+  // and showed NO suggestions at all while it waited.
   useEffect(() => {
     if (!schemaKey || !suggestBody) return;
     const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      controller.abort();
-      setLlmFailed(true);
-    }, 8000);
+    const timeout = setTimeout(() => controller.abort(), LLM_SUGGEST_TIMEOUT_MS);
 
     getSuggestions(suggestBody, controller.signal)
       .then((questions) => {
         clearTimeout(timeout);
-        if (!controller.signal.aborted && questions.length) {
-          setLlmSuggestions(questions);
-        } else {
-          setLlmFailed(true);
-        }
+        if (!controller.signal.aborted && questions.length) setLlmSuggestions(questions);
       })
       .catch(() => {
         clearTimeout(timeout);
-        if (!controller.signal.aborted) setLlmFailed(true);
+        // keep the heuristics
       });
     return () => {
       clearTimeout(timeout);
@@ -197,7 +194,7 @@ export function useSuggestions(args: {
     if (isAnalyzing) setFollowUpSuggestions([]);
   }, [isAnalyzing]);
 
-  // LLM first; heuristics only if LLM failed or timed out
-  const suggestions = llmSuggestions ?? (llmFailed ? heuristicSuggestions : []);
+  // Heuristics at once; LLM suggestions replace them when they arrive.
+  const suggestions = llmSuggestions ?? heuristicSuggestions;
   return { suggestions, followUpSuggestions };
 }
